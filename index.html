@@ -78,6 +78,7 @@
 
             <!-- Controls -->
             <div class="flex flex-col items-center justify-center gap-6">
+                <!-- Main Connect/Disconnect Button -->
                 <div class="relative">
                     <div id="pulse-ring" class="absolute inset-0 rounded-full bg-blue-500/30 live-pulse hidden"></div>
                     <button id="main-btn" class="relative w-24 h-24 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow">
@@ -85,11 +86,18 @@
                     </button>
                 </div>
                 
-                <div class="text-center">
+                <div class="text-center w-full">
                     <p id="instruction" class="text-sm font-semibold text-slate-400">Tap to start session</p>
-                    <button id="stop-btn" class="hidden mt-4 px-6 py-2 bg-red-500/10 text-red-500 rounded-full text-[10px] font-bold border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">
-                        END CONVERSATION
-                    </button>
+                    
+                    <!-- NEW: Mute & Stop Buttons -->
+                    <div class="flex gap-3 justify-center mt-6">
+                        <button id="mute-btn" class="hidden flex-1 px-4 py-3 bg-yellow-500/10 text-yellow-500 rounded-xl text-[10px] font-bold border border-yellow-500/20 hover:bg-yellow-500 hover:text-black transition-all">
+                            MUTE MIC
+                        </button>
+                        <button id="stop-btn" class="hidden flex-1 px-4 py-3 bg-red-500/10 text-red-500 rounded-xl text-[10px] font-bold border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">
+                            END CHAT
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -102,7 +110,7 @@
                     <option value="">Default Mic</option>
                 </select>
             </div>
-            <span class="text-[10px] font-mono text-slate-600">ZEPHYR VOICE • 2.5 FLASH</span>
+            <span class="text-[10px] font-mono text-slate-600">ZEPHYR • 2.5 FLASH</span>
         </div>
     </div>
 
@@ -116,14 +124,15 @@
         let stream = null;
         let processor = null;
         let nextTime = 0;
-        let isSessionLive = false;
-        let isListening = false;
+        let isLive = false;
+        let isMuted = false; // NEW: Mute State
         let currentBotBubble = null;
 
-        // --- UI Elements ---
+        // UI Elements
         const mainBtn = document.getElementById('main-btn');
         const btnIcon = document.getElementById('btn-icon');
         const stopBtn = document.getElementById('stop-btn');
+        const muteBtn = document.getElementById('mute-btn'); // NEW: Mute Button
         const pulseRing = document.getElementById('pulse-ring');
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
@@ -131,95 +140,143 @@
         const apiKeyInput = document.getElementById('api-key');
         const settingsPanel = document.getElementById('settings-panel');
         const micSelect = document.getElementById('mic-select');
-        const instruction = document.getElementById('instruction');
 
-        // --- API KEY ---
+        // --- API KEY PERSISTENCE ---
         window.onload = () => {
             const savedKey = localStorage.getItem('gemini_api_key');
-            if (savedKey) apiKeyInput.value = savedKey;
-            else settingsPanel.classList.remove('hidden');
+            if (savedKey) {
+                apiKeyInput.value = savedKey;
+                statusText.innerText = "Ready to connect";
+            } else {
+                settingsPanel.classList.remove('hidden');
+            }
         };
+
         document.getElementById('save-key').onclick = () => {
             localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
             settingsPanel.classList.add('hidden');
+            alert("API Key Saved!");
         };
+
         document.getElementById('settings-toggle').onclick = () => settingsPanel.classList.toggle('hidden');
 
         // --- CORE LOGIC ---
         async function startSession() {
-            if (isSessionLive) return;
             const key = apiKeyInput.value.trim();
-            if (!key) return alert("Please enter API Key!");
+            if (!key) return alert("Please enter API Key in settings!");
 
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
 
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: micSelect.value ? { deviceId: micSelect.value } : true });
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: micSelect.value ? { deviceId: micSelect.value, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true }
+                });
+
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
 
                 socket.onopen = () => {
-                    socket.send(JSON.stringify({
+                    // FIX: Added "TEXT" to responseModalities so AI returns both Text and Audio
+                    const setup = {
                         setup: {
                             model: MODEL,
-                            generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } } } }
+                            generationConfig: {
+                                responseModalities: ["AUDIO", "TEXT"], 
+                                speechConfig: {
+                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+                                }
+                            }
                         }
-                    }));
+                    };
+                    socket.send(JSON.stringify(setup));
+                    
                     initAudio();
-                    updateSessionUI(true);
+                    toggleUI(true);
                     updateStatus('Live', 'bg-emerald-500');
+                    addTranscript("System", "Connected! You can start speaking.");
                 };
 
-                socket.onmessage = (e) => handleServerMessage(JSON.parse(e.data));
-                socket.onerror = (err) => { console.error(err); stopSession(); };
-                socket.onclose = () => stopSession();
+                socket.onmessage = async (e) => {
+                    const data = JSON.parse(e.data);
+                    
+                    if (data.serverContent?.modelTurn?.parts) {
+                        data.serverContent.modelTurn.parts.forEach(p => {
+                            if (p.inlineData && p.inlineData.data) {
+                                playAudio(p.inlineData.data);
+                            }
+                            if (p.text) {
+                                appendBotText(p.text);
+                            }
+                        });
+                    }
+
+                    if (data.serverContent?.turnComplete) {
+                        currentBotBubble = null; 
+                    }
+                };
+
+                socket.onclose = (event) => {
+                    stopSession();
+                };
+                
+                socket.onerror = (err) => {
+                    alert("Connection Error! Check your internet or API Key.");
+                    stopSession();
+                };
 
             } catch (err) {
-                alert("Mic Access Denied!");
+                alert("Mic Access Denied or System Error!");
                 stopSession();
-            }
-        }
-
-        function handleServerMessage(data) {
-            if (data.serverContent?.modelTurn?.parts) {
-                data.serverContent.modelTurn.parts.forEach(p => {
-                    if (p.inlineData?.data) playAudio(p.inlineData.data);
-                    if (p.text) appendBotText(p.text);
-                });
-            }
-            if (data.serverContent?.turnComplete) {
-                currentBotBubble = null;
-                instruction.innerText = "Tap and hold to speak";
             }
         }
 
         async function initAudio() {
             const source = audioCtx.createMediaStreamSource(stream);
-            const workletCode = `class P extends AudioWorkletProcessor { process(i) { if (i[0][0]) this.port.postMessage(i[0][0]); return true; } } registerProcessor('p', P);`;
+
+            const workletCode = `
+                class P extends AudioWorkletProcessor {
+                    process(inputs) {
+                        const input = inputs[0][0];
+                        if (input) {
+                            const i16 = new Int16Array(input.length);
+                            for (let i=0; i<input.length; i++) i16[i] = input[i] * 0x7FFF;
+                            this.port.postMessage(i16.buffer);
+                        }
+                        return true;
+                    }
+                }
+                registerProcessor('p', P);
+            `;
             const blob = new Blob([workletCode], { type: 'application/javascript' });
             await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
             
             processor = new AudioWorkletNode(audioCtx, 'p');
-            let pcmBuffer = [];
+            
+            let pcmBuffer =[];
             processor.port.onmessage = (e) => {
-                if (!isListening || socket?.readyState !== WebSocket.OPEN) return;
+                // FIX: If isMuted is true, do not send audio data to server!
+                if (!isLive || isMuted || socket?.readyState !== WebSocket.OPEN) return;
                 
-                const f32 = e.data;
-                const i16 = new Int16Array(f32.length);
-                for (let i = 0; i < f32.length; i++) i16[i] = f32[i] * 0x7FFF;
-                
-                pcmBuffer.push(...Array.from(new Uint8Array(i16.buffer)));
+                const arr = new Uint8Array(e.data);
+                for(let i = 0; i < arr.length; i++) pcmBuffer.push(arr[i]);
 
                 if (pcmBuffer.length >= 3200) {
                     const chunk = new Uint8Array(pcmBuffer);
-                    pcmBuffer = [];
-                    let binary = '';
-                    chunk.forEach(b => binary += String.fromCharCode(b));
+                    pcmBuffer =[];
                     
+                    // Fast Base64 encoding for small chunks
+                    const b64 = btoa(String.fromCharCode.apply(null, chunk));
+
                     socket.send(JSON.stringify({
-                        realtimeInput: { mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }] }
+                        realtimeInput: {
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
+                        }
                     }));
                 }
             };
@@ -234,7 +291,7 @@
             
             const i16 = new Int16Array(buffer);
             const f32 = new Float32Array(i16.length);
-            for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768.0;
+            for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
             const buf = audioCtx.createBuffer(1, f32.length, 24000);
             buf.copyToChannel(f32, 0);
@@ -242,43 +299,72 @@
             node.buffer = buf;
             node.connect(audioCtx.destination);
             
-            let start = Math.max(nextTime, audioCtx.currentTime);
-            node.start(start);
-            nextTime = start + buf.duration;
+            let now = audioCtx.currentTime;
+            if (nextTime < now) nextTime = now;
+            
+            node.start(nextTime);
+            nextTime += buf.duration;
         }
 
-        function startListening() {
-            if (!isSessionLive || isListening) return;
-            isListening = true;
-            updateListeningUI(true);
-        }
-
-        function stopListening() {
-            if (!isSessionLive || !isListening) return;
-            isListening = false;
-            updateListeningUI(false);
-            if (socket?.readyState === WebSocket.OPEN) {
-                // Signal end of user turn
-                socket.send(JSON.stringify({ realtimeInput: { mediaChunks: [] } }));
+        // --- UI & MUTE CONTROL ---
+        muteBtn.onclick = () => {
+            isMuted = !isMuted;
+            if (isMuted) {
+                muteBtn.innerText = "UNMUTE MIC";
+                muteBtn.classList.replace('text-yellow-500', 'text-emerald-500');
+                muteBtn.classList.replace('border-yellow-500/20', 'border-emerald-500/20');
+                muteBtn.classList.replace('bg-yellow-500/10', 'bg-emerald-500/10');
+                pulseRing.classList.add('hidden');
+                mainBtn.classList.replace('bg-red-500', 'bg-slate-700');
+                btnIcon.setAttribute('icon', 'lucide:mic-off');
+                document.getElementById('instruction').innerText = "Microphone is muted";
+            } else {
+                muteBtn.innerText = "MUTE MIC";
+                muteBtn.classList.replace('text-emerald-500', 'text-yellow-500');
+                muteBtn.classList.replace('border-emerald-500/20', 'border-yellow-500/20');
+                muteBtn.classList.replace('bg-emerald-500/10', 'bg-yellow-500/10');
+                pulseRing.classList.remove('hidden');
+                mainBtn.classList.replace('bg-slate-700', 'bg-red-500');
+                btnIcon.setAttribute('icon', 'lucide:mic');
+                document.getElementById('instruction').innerText = "Listening to you...";
             }
-        }
+        };
 
-        // --- UI HELPERS ---
-        function updateSessionUI(isLive) {
-            isSessionLive = isLive;
-            mainBtn.className = "relative w-24 h-24 rounded-full flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
-            mainBtn.classList.add(isLive ? 'bg-white' : 'bg-red-500', isLive ? 'text-slate-900' : 'text-white');
+        function toggleUI(live) {
+            isLive = live;
+            isMuted = false; // Reset mute state
+            
+            mainBtn.classList.toggle('bg-red-500', live);
+            mainBtn.classList.toggle('text-white', live);
+            mainBtn.classList.toggle('bg-white', !live);
+            mainBtn.classList.toggle('text-slate-900', !live);
             btnIcon.setAttribute('icon', 'lucide:mic');
-            stopBtn.classList.toggle('hidden', !isLive);
-            instruction.innerText = isLive ? "Tap and hold to speak" : "Tap to start session";
-            if(isLive && transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
+            
+            pulseRing.classList.toggle('hidden', !live);
+            stopBtn.classList.toggle('hidden', !live);
+            muteBtn.classList.toggle('hidden', !live);
+            
+            // Reset Mute button styling
+            muteBtn.innerText = "MUTE MIC";
+            muteBtn.className = "hidden flex-1 px-4 py-3 bg-yellow-500/10 text-yellow-500 rounded-xl text-[10px] font-bold border border-yellow-500/20 hover:bg-yellow-500 hover:text-black transition-all";
+            if(live) muteBtn.classList.remove('hidden');
+
+            document.getElementById('instruction').innerText = live ? "Listening to you..." : "Tap to start session";
+            if(live && transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
         }
 
-        function updateListeningUI(isListening) {
-            pulseRing.classList.toggle('hidden', !isListening);
-            mainBtn.classList.toggle('bg-red-500', isListening);
-            mainBtn.classList.toggle('text-white', isListening);
-            instruction.innerText = isListening ? "Listening..." : "Processing...";
+        function updateStatus(txt, color) {
+            statusText.innerText = txt;
+            statusDot.className = `w-2 h-2 rounded-full ${color}`;
+        }
+
+        function addTranscript(role, text) {
+            const div = document.createElement('div');
+            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4";
+            div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-blue-400">${role}</span>
+                           <p class="text-slate-200 mt-1">${text}</p>`;
+            transcript.appendChild(div);
+            transcript.scrollTop = transcript.scrollHeight;
         }
 
         function appendBotText(text) {
@@ -295,26 +381,20 @@
         }
 
         function stopSession() {
-            if (socket) { socket.close(); socket = null; }
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
             if (stream) stream.getTracks().forEach(t => t.stop());
-            if (audioCtx) audioCtx.suspend();
-            updateSessionUI(false);
-            updateListeningUI(false);
+            if (audioCtx) {
+                audioCtx.suspend(); 
+            }
+            toggleUI(false);
             updateStatus('Disconnected', 'bg-slate-500');
-            isListening = false;
             nextTime = 0;
             currentBotBubble = null;
         }
 
-        // --- Event Listeners ---
-        mainBtn.addEventListener('click', () => { if (!isSessionLive) startSession(); });
-        mainBtn.addEventListener('mousedown', startListening);
-        mainBtn.addEventListener('mouseup', stopListening);
-        mainBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startListening(); });
-        mainBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopListening(); });
-        stopBtn.onclick = stopSession;
-
-        // Mic list
         navigator.mediaDevices.enumerateDevices().then(devs => {
             micSelect.innerHTML = '<option value="">Default Mic</option>';
             devs.filter(d => d.kind === 'audioinput').forEach(d => {
@@ -324,6 +404,12 @@
                 micSelect.appendChild(o);
             });
         });
+
+        mainBtn.onclick = () => {
+            if (!isLive) startSession();
+            // If live, main button does nothing (they should use Stop or Mute buttons below it)
+        };
+        stopBtn.onclick = stopSession;
     </script>
 </body>
 </html>
