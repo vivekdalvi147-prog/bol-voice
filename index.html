@@ -116,10 +116,11 @@
         let stream = null;
         let processor = null;
         let nextTime = 0;
-        let isLive = false;
-        let currentBotBubble = null; // For Real-time text appending
+        let isSessionLive = false;
+        let isListening = false;
+        let currentBotBubble = null;
 
-        // UI Elements
+        // --- UI Elements ---
         const mainBtn = document.getElementById('main-btn');
         const btnIcon = document.getElementById('btn-icon');
         const stopBtn = document.getElementById('stop-btn');
@@ -130,222 +131,156 @@
         const apiKeyInput = document.getElementById('api-key');
         const settingsPanel = document.getElementById('settings-panel');
         const micSelect = document.getElementById('mic-select');
+        const instruction = document.getElementById('instruction');
 
-        // --- API KEY PERSISTENCE ---
+        // --- API KEY ---
         window.onload = () => {
             const savedKey = localStorage.getItem('gemini_api_key');
-            if (savedKey) {
-                apiKeyInput.value = savedKey;
-                statusText.innerText = "Ready to connect";
-            } else {
-                settingsPanel.classList.remove('hidden');
-            }
+            if (savedKey) apiKeyInput.value = savedKey;
+            else settingsPanel.classList.remove('hidden');
         };
-
         document.getElementById('save-key').onclick = () => {
             localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
             settingsPanel.classList.add('hidden');
-            alert("API Key Saved!");
         };
-
         document.getElementById('settings-toggle').onclick = () => settingsPanel.classList.toggle('hidden');
 
         // --- CORE LOGIC ---
         async function startSession() {
+            if (isSessionLive) return;
             const key = apiKeyInput.value.trim();
-            if (!key) return alert("Please enter API Key in settings!");
+            if (!key) return alert("Please enter API Key!");
 
-            // 1. Initialize AudioContext on User Click (Crucial for unblocking Audio)
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            }
-            if (audioCtx.state === 'suspended') {
-                await audioCtx.resume();
-            }
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
 
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
-                // 2. Mic Permission
-                stream = await navigator.mediaDevices.getUserMedia({
-                    audio: micSelect.value ? { deviceId: micSelect.value } : true
-                });
-
-                // 3. WebSocket Connection
+                stream = await navigator.mediaDevices.getUserMedia({ audio: micSelect.value ? { deviceId: micSelect.value } : true });
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
 
                 socket.onopen = () => {
-                    const setup = {
+                    socket.send(JSON.stringify({
                         setup: {
                             model: MODEL,
-                            generationConfig: {
-                                responseModalities: ["AUDIO"],
-                                speechConfig: {
-                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
-                                }
-                            }
+                            generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } } } }
                         }
-                    };
-                    socket.send(JSON.stringify(setup));
-                    
+                    }));
                     initAudio();
-                    toggleUI(true);
+                    updateSessionUI(true);
                     updateStatus('Live', 'bg-emerald-500');
-                    addTranscript("System", "Connection established. You can start speaking now!");
                 };
 
-                socket.onmessage = async (e) => {
-                    const data = JSON.parse(e.data);
-                    
-                    // Handle Server Content (Text and Audio)
-                    if (data.serverContent?.modelTurn?.parts) {
-                        data.serverContent.modelTurn.parts.forEach(p => {
-                            // Play Audio if exists
-                            if (p.inlineData && p.inlineData.data) {
-                                playAudio(p.inlineData.data);
-                            }
-                            // Append Text if exists
-                            if (p.text) {
-                                appendBotText(p.text);
-                            }
-                        });
-                    }
-
-                    // Reset Bot Bubble on Turn Complete
-                    if (data.serverContent?.turnComplete) {
-                        currentBotBubble = null; 
-                    }
-                };
-
-                socket.onclose = (event) => {
-                    console.log("WebSocket Closed:", event);
-                    stopSession();
-                };
-                
-                socket.onerror = (err) => {
-                    console.error("Socket Error", err);
-                    alert("Connection Error! Check your internet or API Key.");
-                    stopSession();
-                };
+                socket.onmessage = (e) => handleServerMessage(JSON.parse(e.data));
+                socket.onerror = (err) => { console.error(err); stopSession(); };
+                socket.onclose = () => stopSession();
 
             } catch (err) {
-                console.error(err);
-                alert("Mic Access Denied or System Error!");
+                alert("Mic Access Denied!");
                 stopSession();
+            }
+        }
+
+        function handleServerMessage(data) {
+            if (data.serverContent?.modelTurn?.parts) {
+                data.serverContent.modelTurn.parts.forEach(p => {
+                    if (p.inlineData?.data) playAudio(p.inlineData.data);
+                    if (p.text) appendBotText(p.text);
+                });
+            }
+            if (data.serverContent?.turnComplete) {
+                currentBotBubble = null;
+                instruction.innerText = "Tap and hold to speak";
             }
         }
 
         async function initAudio() {
             const source = audioCtx.createMediaStreamSource(stream);
-
-            // AudioWorklet to capture Mic Data
-            const workletCode = `
-                class P extends AudioWorkletProcessor {
-                    process(inputs) {
-                        const input = inputs[0][0];
-                        if (input) {
-                            const i16 = new Int16Array(input.length);
-                            for (let i=0; i<input.length; i++) i16[i] = input[i] * 0x7FFF;
-                            this.port.postMessage(i16.buffer);
-                        }
-                        return true;
-                    }
-                }
-                registerProcessor('p', P);
-            `;
+            const workletCode = `class P extends AudioWorkletProcessor { process(i) { if (i[0][0]) this.port.postMessage(i[0][0]); return true; } } registerProcessor('p', P);`;
             const blob = new Blob([workletCode], { type: 'application/javascript' });
             await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
             
             processor = new AudioWorkletNode(audioCtx, 'p');
-            
-            // BATCHING LOGIC: Do not spam WebSocket every 8ms. Send data every ~100ms.
-            let pcmBuffer =[];
+            let pcmBuffer = [];
             processor.port.onmessage = (e) => {
-                if (!isLive || socket?.readyState !== WebSocket.OPEN) return;
+                if (!isListening || socket?.readyState !== WebSocket.OPEN) return;
                 
-                const arr = new Uint8Array(e.data);
-                for(let i = 0; i < arr.length; i++) {
-                    pcmBuffer.push(arr[i]);
-                }
+                const f32 = e.data;
+                const i16 = new Int16Array(f32.length);
+                for (let i = 0; i < f32.length; i++) i16[i] = f32[i] * 0x7FFF;
+                
+                pcmBuffer.push(...Array.from(new Uint8Array(i16.buffer)));
 
-                // 3200 bytes = ~100ms audio chunk
                 if (pcmBuffer.length >= 3200) {
                     const chunk = new Uint8Array(pcmBuffer);
-                    pcmBuffer =[];
-                    
+                    pcmBuffer = [];
                     let binary = '';
-                    for (let i = 0; i < chunk.length; i++) {
-                        binary += String.fromCharCode(chunk[i]);
-                    }
-                    const b64 = btoa(binary);
-
+                    chunk.forEach(b => binary += String.fromCharCode(b));
+                    
                     socket.send(JSON.stringify({
-                        realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
-                        }
+                        realtimeInput: { mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }] }
                     }));
                 }
             };
             source.connect(processor);
         }
 
-        // Play AI Audio Gaplessly
         function playAudio(b64) {
             const bin = atob(b64);
             const buffer = new ArrayBuffer(bin.length);
             const view = new Uint8Array(buffer);
-            for (let i = 0; i < bin.length; i++) {
-                view[i] = bin.charCodeAt(i);
-            }
+            for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
             
             const i16 = new Int16Array(buffer);
             const f32 = new Float32Array(i16.length);
-            for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
+            for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768.0;
 
-            const buf = audioCtx.createBuffer(1, f32.length, 24000); // Server sends 24KHz
+            const buf = audioCtx.createBuffer(1, f32.length, 24000);
             buf.copyToChannel(f32, 0);
             const node = audioCtx.createBufferSource();
             node.buffer = buf;
             node.connect(audioCtx.destination);
             
-            // Fix for audio timing gap
-            let now = audioCtx.currentTime;
-            if (nextTime < now) {
-                nextTime = now;
+            let start = Math.max(nextTime, audioCtx.currentTime);
+            node.start(start);
+            nextTime = start + buf.duration;
+        }
+
+        function startListening() {
+            if (!isSessionLive || isListening) return;
+            isListening = true;
+            updateListeningUI(true);
+        }
+
+        function stopListening() {
+            if (!isSessionLive || !isListening) return;
+            isListening = false;
+            updateListeningUI(false);
+            if (socket?.readyState === WebSocket.OPEN) {
+                // Signal end of user turn
+                socket.send(JSON.stringify({ realtimeInput: { mediaChunks: [] } }));
             }
-            
-            node.start(nextTime);
-            nextTime += buf.duration;
         }
 
         // --- UI HELPERS ---
-        function toggleUI(live) {
-            isLive = live;
-            mainBtn.classList.toggle('bg-red-500', live);
-            mainBtn.classList.toggle('text-white', live);
-            btnIcon.setAttribute('icon', live ? 'lucide:mic-off' : 'lucide:mic');
-            pulseRing.classList.toggle('hidden', !live);
-            stopBtn.classList.toggle('hidden', !live);
-            document.getElementById('instruction').innerText = live ? "Listening to you..." : "Tap to start session";
-            if(live && transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
+        function updateSessionUI(isLive) {
+            isSessionLive = isLive;
+            mainBtn.className = "relative w-24 h-24 rounded-full flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
+            mainBtn.classList.add(isLive ? 'bg-white' : 'bg-red-500', isLive ? 'text-slate-900' : 'text-white');
+            btnIcon.setAttribute('icon', 'lucide:mic');
+            stopBtn.classList.toggle('hidden', !isLive);
+            instruction.innerText = isLive ? "Tap and hold to speak" : "Tap to start session";
+            if(isLive && transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
         }
 
-        function updateStatus(txt, color) {
-            statusText.innerText = txt;
-            statusDot.className = `w-2 h-2 rounded-full ${color}`;
+        function updateListeningUI(isListening) {
+            pulseRing.classList.toggle('hidden', !isListening);
+            mainBtn.classList.toggle('bg-red-500', isListening);
+            mainBtn.classList.toggle('text-white', isListening);
+            instruction.innerText = isListening ? "Listening..." : "Processing...";
         }
 
-        // Create new standalone message
-        function addTranscript(role, text) {
-            const div = document.createElement('div');
-            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4";
-            div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-blue-400">${role}</span>
-                           <p class="text-slate-200 mt-1">${text}</p>`;
-            transcript.appendChild(div);
-            transcript.scrollTop = transcript.scrollHeight;
-        }
-
-        // Append text chunk by chunk for AI (Live typing effect)
         function appendBotText(text) {
             if (!currentBotBubble) {
                 const div = document.createElement('div');
@@ -360,21 +295,26 @@
         }
 
         function stopSession() {
-            if (socket) {
-                socket.close();
-                socket = null;
-            }
+            if (socket) { socket.close(); socket = null; }
             if (stream) stream.getTracks().forEach(t => t.stop());
-            if (audioCtx) {
-                audioCtx.suspend(); 
-            }
-            toggleUI(false);
+            if (audioCtx) audioCtx.suspend();
+            updateSessionUI(false);
+            updateListeningUI(false);
             updateStatus('Disconnected', 'bg-slate-500');
+            isListening = false;
             nextTime = 0;
             currentBotBubble = null;
         }
 
-        // Mic Enumeration
+        // --- Event Listeners ---
+        mainBtn.addEventListener('click', () => { if (!isSessionLive) startSession(); });
+        mainBtn.addEventListener('mousedown', startListening);
+        mainBtn.addEventListener('mouseup', stopListening);
+        mainBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startListening(); });
+        mainBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopListening(); });
+        stopBtn.onclick = stopSession;
+
+        // Mic list
         navigator.mediaDevices.enumerateDevices().then(devs => {
             micSelect.innerHTML = '<option value="">Default Mic</option>';
             devs.filter(d => d.kind === 'audioinput').forEach(d => {
@@ -384,9 +324,6 @@
                 micSelect.appendChild(o);
             });
         });
-
-        mainBtn.onclick = () => isLive ? stopSession() : startSession();
-        stopBtn.onclick = stopSession;
     </script>
 </body>
 </html>
