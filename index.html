@@ -55,7 +55,7 @@
             </button>
         </div>
 
-        <!-- Settings Panel (Hidden by default) -->
+        <!-- Settings Panel -->
         <div id="settings-panel" class="px-8 py-4 bg-black/20 border-b border-white/5 hidden">
             <label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">API Configuration</label>
             <div class="flex gap-2">
@@ -109,7 +109,8 @@
     <script>
         // --- CONFIG & STATE ---
         const MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-        const WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent";
+        // FIX: Changed "BiDi" to "Bidi" (This causes a 404 connection drop if incorrect)
+        const WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
         
         let socket = null;
         let audioCtx = null;
@@ -166,14 +167,14 @@
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
 
                 socket.onopen = () => {
-                    // 3. Setup Message (Crucial for Gemini Live)
+                    // FIX: Changed keys to camelCase & responseModalities to "AUDIO"
                     const setup = {
                         setup: {
                             model: MODEL,
-                            generation_config: {
-                                response_modalities: ["audio"],
-                                speech_config: {
-                                    voice_config: { prebuilt_voice_config: { voice_name: "Zephyr" } }
+                            generationConfig: {
+                                responseModalities: ["AUDIO"],
+                                speechConfig: {
+                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
                                 }
                             }
                         }
@@ -195,21 +196,27 @@
                     }
                 };
 
-                socket.onclose = () => stopSession();
+                socket.onclose = (event) => {
+                    console.log("WebSocket Closed:", event);
+                    stopSession();
+                };
+                
                 socket.onerror = (err) => {
-                    console.error(err);
-                    alert("Connection Error! Check your API Key.");
+                    console.error("Socket Error", err);
+                    alert("Connection Error! Please check your API Key & Internet connection.");
                     stopSession();
                 };
 
             } catch (err) {
-                alert("Mic Access Denied!");
+                console.error(err);
+                alert("Mic Access Denied or Initialization Failed!");
                 stopSession();
             }
         }
 
         async function initAudio() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            // FIX: Set Sample Rate to 16000 to match the API requirements
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             const source = audioCtx.createMediaStreamSource(stream);
 
             // Worklet for 16-bit PCM
@@ -233,10 +240,16 @@
             processor = new AudioWorkletNode(audioCtx, 'p');
             processor.port.onmessage = (e) => {
                 if (socket?.readyState === WebSocket.OPEN) {
-                    const b64 = btoa(String.fromCharCode(...new Uint8Array(e.data)));
+                    // Safe base64 conversion preventing Call Stack Exceeded error
+                    const arr = new Uint8Array(e.data);
+                    let binary = '';
+                    for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+                    const b64 = btoa(binary);
+
+                    // FIX: Changed to camelCase "realtimeInput", "mediaChunks", "mimeType"
                     socket.send(JSON.stringify({
-                        realtime_input: {
-                            media_chunks: [{ mime_type: "audio/pcm;rate=16000", data: b64 }]
+                        realtimeInput: {
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
                         }
                     }));
                 }
@@ -246,10 +259,17 @@
 
         function playAudio(b64) {
             const bin = atob(b64);
-            const i16 = new Int16Array(new Uint8Array([...bin].map(c => c.charCodeAt(0))).buffer);
+            const buffer = new ArrayBuffer(bin.length);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < bin.length; i++) {
+                view[i] = bin.charCodeAt(i);
+            }
+            
+            const i16 = new Int16Array(buffer);
             const f32 = new Float32Array(i16.length);
             for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
+            // Server typically returns 24000Hz PCM
             const buf = audioCtx.createBuffer(1, f32.length, 24000);
             buf.copyToChannel(f32, 0);
             const node = audioCtx.createBufferSource();
@@ -290,7 +310,7 @@
         function stopSession() {
             if (socket) socket.close();
             if (stream) stream.getTracks().forEach(t => t.stop());
-            if (audioCtx) audioCtx.close();
+            if (audioCtx) { audioCtx.close(); audioCtx = null; }
             toggleUI(false);
             updateStatus('Disconnected', 'bg-slate-500');
             nextTime = 0;
