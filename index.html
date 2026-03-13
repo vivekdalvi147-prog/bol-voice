@@ -3,180 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Live - Fixed Mic Version</title>
+    <title>Gemini Live - Zephyr Voice</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://code.iconify.design/iconify-icon/3.0.0/iconify-icon.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; }
-        .live-ring {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 4px solid #ef4444;
-            animation: ripple 1.5s linear infinite;
-            opacity: 0;
+        body { font-family: 'Inter', sans-serif; background: #020617; color: #f8fafc; }
+        .glow-btn { transition: all 0.3s ease; box-shadow: 0 0 0 rgba(59, 130, 246, 0); }
+        .glow-btn:hover { box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); transform: scale(1.02); }
+        .recording-pulse { animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
-        @keyframes ripple {
-            0% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(1.5); opacity: 0; }
-        }
-        .glass-card {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
+        #transcript::-webkit-scrollbar { width: 4px; }
+        #transcript::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
 
-    <div class="w-full max-w-md glass-card rounded-3xl shadow-2xl overflow-hidden">
+    <div class="w-full max-w-lg bg-slate-900/50 border border-slate-800 rounded-[2.5rem] p-8 backdrop-blur-xl shadow-2xl">
         <!-- Header -->
-        <div class="p-6 border-b border-white/10 flex justify-between items-center bg-white/5">
+        <div class="flex justify-between items-center mb-8">
             <div>
-                <h1 class="text-xl font-bold tracking-tight">Gemini Live AI</h1>
-                <div class="flex items-center gap-2 mt-1">
-                    <span id="status-dot" class="w-2 h-2 rounded-full bg-gray-500"></span>
-                    <span id="status-text" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ready</span>
-                </div>
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Gemini Live</h1>
+                <p class="text-slate-500 text-xs font-semibold tracking-widest uppercase mt-1">Zephyr Voice Engine</p>
             </div>
-            <div class="bg-blue-500/20 p-2 rounded-lg">
-                <iconify-icon icon="logos:google-gemini" width="24"></iconify-icon>
+            <div id="status-badge" class="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800 border border-slate-700">
+                <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+                <span id="status-text" class="text-[10px] font-bold text-slate-400 uppercase">Offline</span>
             </div>
         </div>
 
-        <div class="p-6 space-y-6">
-            <!-- API Key Section -->
-            <div id="api-section">
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Your Gemini API Key</label>
-                <input id="api-key" type="password" placeholder="Paste AIzaSy... key here" 
-                    class="w-full px-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-sm focus:border-blue-500 outline-none transition-all">
+        <!-- API Key Input -->
+        <div id="setup-box" class="mb-8 space-y-3">
+            <label class="text-xs font-bold text-slate-400 uppercase ml-1">Gemini API Key</label>
+            <div class="relative">
+                <input id="api-key" type="password" placeholder="Enter your API key..." 
+                    class="w-full bg-slate-950/50 border border-slate-700 rounded-2xl px-5 py-4 text-sm focus:border-blue-500 outline-none transition-all text-blue-100">
+                <iconify-icon icon="lucide:key" class="absolute right-5 top-4 text-slate-600" width="20"></iconify-icon>
             </div>
+        </div>
 
-            <!-- Transcript Area -->
-            <div id="transcript-box" class="hidden animate-fadeIn">
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Live Transcript</label>
-                <div id="transcript" class="h-40 overflow-y-auto p-4 bg-black/20 rounded-xl border border-white/5 text-sm text-gray-300 italic leading-relaxed">
-                    Waiting for voice...
-                </div>
+        <!-- Transcript Area -->
+        <div id="transcript-box" class="hidden mb-8 animate-in fade-in duration-500">
+            <div id="transcript" class="h-48 overflow-y-auto bg-slate-950/30 border border-slate-800/50 rounded-3xl p-6 text-sm text-slate-300 leading-relaxed italic">
+                Start speaking to see transcript...
             </div>
+        </div>
 
-            <!-- Main Button -->
-            <div class="flex flex-col items-center justify-center py-4">
-                <div class="relative flex items-center justify-center">
-                    <div id="ripple" class="hidden live-ring"></div>
-                    <button id="main-btn" class="relative z-10 w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all">
-                        <iconify-icon id="btn-icon" icon="lucide:mic" width="32"></iconify-icon>
-                    </button>
-                </div>
-                <p id="hint" class="mt-4 text-xs text-gray-400 font-medium">Tap to start conversation</p>
-                
-                <button id="stop-btn" class="hidden mt-6 px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-bold hover:bg-red-500 hover:text-white transition-all">
-                    STOP SESSION
+        <!-- Controls -->
+        <div class="flex flex-col items-center gap-6">
+            <button id="action-btn" class="glow-btn w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg">
+                <iconify-icon id="btn-icon" icon="lucide:mic" width="36"></iconify-icon>
+            </button>
+            
+            <div class="text-center">
+                <p id="instruction" class="text-sm text-slate-400 font-medium">Click to start live session</p>
+                <button id="stop-btn" class="hidden mt-4 text-xs font-bold text-red-400 hover:text-red-300 transition-colors uppercase tracking-widest">
+                    End Session
                 </button>
             </div>
         </div>
 
-        <!-- Footer -->
-        <div class="px-6 py-4 bg-black/20 border-t border-white/5 flex justify-between items-center">
-            <select id="mic-select" class="text-[10px] bg-transparent font-bold text-gray-500 outline-none cursor-pointer uppercase max-w-[150px]">
+        <!-- Mic Select -->
+        <div class="mt-10 pt-6 border-t border-slate-800/50 flex justify-between items-center">
+            <select id="mic-select" class="bg-transparent text-[10px] font-bold text-slate-500 outline-none uppercase cursor-pointer">
                 <option value="">Default Microphone</option>
             </select>
-            <span class="text-[9px] text-gray-500 font-mono">MODEL: 2.5-FLASH-AUDIO</span>
+            <span class="text-[10px] font-mono text-slate-600">v2.5-FLASH-AUDIO</span>
         </div>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        const MODEL_ID = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-        const API_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent";
+        /**
+         * CONFIGURATION FROM YOUR TS CODE
+         */
+        const MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025";
+        const WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent";
 
-        let ws = null;
-        let audioCtx = null;
+        let socket = null;
+        let audioContext = null;
         let micStream = null;
-        let recorder = null;
-        let nextTime = 0;
-        let isRunning = false;
+        let processor = null;
+        let nextPlayTime = 0;
+        let isLive = false;
 
-        // UI Elements
-        const btn = document.getElementById('main-btn');
-        const stopBtn = document.getElementById('stop-btn');
+        const btn = document.getElementById('action-btn');
         const btnIcon = document.getElementById('btn-icon');
-        const ripple = document.getElementById('ripple');
+        const stopBtn = document.getElementById('stop-btn');
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
         const transcript = document.getElementById('transcript');
-        const apiInput = document.getElementById('api-key');
+        const apiKeyInput = document.getElementById('api-key');
         const micSelect = document.getElementById('mic-select');
 
         /**
-         * 1. MIC PERMISSION & START
+         * START SESSION
          */
-        async function startEverything() {
-            const key = apiInput.value.trim();
-            if (!key) {
-                alert("Please enter your API Key first!");
-                return;
-            }
+        async function startSession() {
+            const key = apiKeyInput.value.trim();
+            if (!key) return alert("Please enter API Key!");
 
             try {
-                // Force request permission
+                // 1. Get Mic Permission
                 micStream = await navigator.mediaDevices.getUserMedia({
                     audio: micSelect.value ? { deviceId: micSelect.value } : true
                 });
 
-                // If permission granted, start WebSocket
-                initWebSocket(key);
+                // 2. Connect WebSocket
+                socket = new WebSocket(`${WS_URL}?key=${key}`);
+
+                socket.onopen = () => {
+                    updateStatus('Connected', 'bg-blue-500');
+                    sendSetup();
+                    initAudioEngine();
+                    toggleUI(true);
+                };
+
+                socket.onmessage = async (event) => {
+                    const msg = JSON.parse(event.data);
+                    handleServerMessage(msg);
+                };
+
+                socket.onclose = () => stopSession();
+                socket.onerror = () => alert("Connection Error!");
+
             } catch (err) {
-                console.error("Mic Error:", err);
-                alert("Microphone access denied! Please enable it in browser settings.");
+                console.error(err);
+                alert("Mic access denied!");
             }
         }
 
         /**
-         * 2. WEBSOCKET LOGIC
+         * SEND SETUP (With Zephyr Voice)
          */
-        function initWebSocket(key) {
-            ws = new WebSocket(`${API_URL}?key=${key}`);
-
-            ws.onopen = () => {
-                updateStatus('Connected', 'bg-emerald-500');
-                // Send Setup
-                ws.send(JSON.stringify({
-                    setup: { model: MODEL_ID, generation_config: { response_modalities: ["audio"] } }
-                }));
-                startAudioEngine();
-                toggleUI(true);
-            };
-
-            ws.onmessage = async (e) => {
-                const data = JSON.parse(e.data);
-                if (data.serverContent?.modelTurn?.parts) {
-                    data.serverContent.modelTurn.parts.forEach(p => {
-                        if (p.inlineData) playAudio(p.inlineData.data);
-                        if (p.text) showText("Gemini: " + p.text);
-                    });
+        function sendSetup() {
+            const setup = {
+                setup: {
+                    model: MODEL,
+                    generation_config: {
+                        response_modalities: ["audio"],
+                        speech_config: {
+                            voice_config: {
+                                prebuilt_voice_config: {
+                                    voice_name: "Zephyr" // As per your TS code
+                                }
+                            }
+                        }
+                    }
                 }
             };
-
-            ws.onclose = () => stopEverything();
-            ws.onerror = () => {
-                alert("Connection Error! Check API Key.");
-                stopEverything();
-            };
+            socket.send(JSON.stringify(setup));
         }
 
         /**
-         * 3. AUDIO ENGINE (INPUT/OUTPUT)
+         * AUDIO ENGINE (Input & Output)
          */
-        async function startAudioEngine() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-            const source = audioCtx.createMediaStreamSource(micStream);
-
-            // Worklet for processing mic data
-            const blob = new Blob([`
-                class P extends AudioWorkletProcessor {
+        async function initAudioEngine() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            
+            // Input: Mic -> WebSocket
+            const source = audioContext.createMediaStreamSource(micStream);
+            const workletCode = `
+                class Recorder extends AudioWorkletProcessor {
                     process(inputs) {
                         const input = inputs[0][0];
                         if (input) {
@@ -187,22 +178,32 @@
                         return true;
                     }
                 }
-                registerProcessor('p', P);
-            `], { type: 'application/javascript' });
-
-            await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
-            recorder = new AudioWorkletNode(audioCtx, 'p');
-
-            recorder.port.onmessage = (e) => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
+                registerProcessor('recorder', Recorder);
+            `;
+            const blob = new Blob([workletCode], { type: 'application/javascript' });
+            await audioContext.audioWorklet.addModule(URL.createObjectURL(blob));
+            
+            processor = new AudioWorkletNode(audioContext, 'recorder');
+            processor.port.onmessage = (e) => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
                     const b64 = btoa(String.fromCharCode(...new Uint8Array(e.data)));
-                    ws.send(JSON.stringify({
-                        realtime_input: { media_chunks: [{ mime_type: "audio/pcm;rate=16000", data: b64 }] }
+                    socket.send(JSON.stringify({
+                        realtime_input: {
+                            media_chunks: [{ mime_type: "audio/pcm;rate=16000", data: b64 }]
+                        }
                     }));
                 }
             };
+            source.connect(processor);
+        }
 
-            source.connect(recorder);
+        function handleServerMessage(msg) {
+            if (msg.serverContent?.modelTurn?.parts) {
+                msg.serverContent.modelTurn.parts.forEach(part => {
+                    if (part.inlineData) playAudio(part.inlineData.data);
+                    if (part.text) updateTranscript("Gemini: " + part.text);
+                });
+            }
         }
 
         function playAudio(b64) {
@@ -211,30 +212,29 @@
             const f32 = new Float32Array(i16.length);
             for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
-            const buf = audioCtx.createBuffer(1, f32.length, 24000);
+            const buf = audioContext.createBuffer(1, f32.length, 24000);
             buf.copyToChannel(f32, 0);
-            const node = audioCtx.createBufferSource();
+            const node = audioContext.createBufferSource();
             node.buffer = buf;
-            node.connect(audioCtx.destination);
+            node.connect(audioContext.destination);
             
-            const start = Math.max(nextTime, audioCtx.currentTime);
+            const start = Math.max(nextPlayTime, audioContext.currentTime);
             node.start(start);
-            nextTime = start + buf.duration;
+            nextPlayTime = start + buf.duration;
         }
 
         /**
-         * 4. UI HELPERS
+         * UI HELPERS
          */
-        function toggleUI(on) {
-            isRunning = on;
-            btn.classList.toggle('bg-red-500', on);
-            btn.classList.toggle('text-white', on);
-            btnIcon.setAttribute('icon', on ? 'lucide:mic-off' : 'lucide:mic');
-            ripple.classList.toggle('hidden', !on);
-            stopBtn.classList.toggle('hidden', !on);
-            document.getElementById('api-section').classList.toggle('hidden', on);
-            document.getElementById('transcript-box').classList.toggle('hidden', !on);
-            document.getElementById('hint').innerText = on ? "I'm listening..." : "Tap to start conversation";
+        function toggleUI(live) {
+            isLive = live;
+            btn.classList.toggle('bg-red-500', live);
+            btn.classList.toggle('recording-pulse', live);
+            btnIcon.setAttribute('icon', live ? 'lucide:mic-off' : 'lucide:mic');
+            stopBtn.classList.toggle('hidden', !live);
+            document.getElementById('setup-box').classList.toggle('hidden', live);
+            document.getElementById('transcript-box').classList.toggle('hidden', !live);
+            document.getElementById('instruction').innerText = live ? "Listening..." : "Click to start live session";
         }
 
         function updateStatus(txt, color) {
@@ -242,24 +242,23 @@
             statusDot.className = `w-2 h-2 rounded-full ${color}`;
         }
 
-        function showText(t) {
-            if (transcript.innerText.includes("Waiting")) transcript.innerText = "";
-            transcript.innerHTML += `<p class="mb-2 border-l-2 border-blue-500 pl-2">${t}</p>`;
+        function updateTranscript(t) {
+            if (transcript.innerText.includes("Start speaking")) transcript.innerText = "";
+            transcript.innerHTML += `<p class="mb-2 border-l-2 border-blue-500 pl-3">${t}</p>`;
             transcript.scrollTop = transcript.scrollHeight;
         }
 
-        function stopEverything() {
-            if (ws) ws.close();
+        function stopSession() {
+            if (socket) socket.close();
             if (micStream) micStream.getTracks().forEach(t => t.stop());
-            if (audioCtx) audioCtx.close();
+            if (audioContext) audioContext.close();
             toggleUI(false);
-            updateStatus('Ready', 'bg-gray-500');
-            nextTime = 0;
+            updateStatus('Offline', 'bg-slate-600');
+            nextPlayTime = 0;
         }
 
         // Mic List
         navigator.mediaDevices.enumerateDevices().then(devs => {
-            micSelect.innerHTML = '<option value="">Default Mic</option>';
             devs.filter(d => d.kind === 'audioinput').forEach(d => {
                 const o = document.createElement('option');
                 o.value = d.deviceId;
@@ -268,9 +267,8 @@
             });
         });
 
-        btn.onclick = () => isRunning ? stopEverything() : startEverything();
-        stopBtn.onclick = stopEverything;
-
+        btn.onclick = () => isLive ? stopSession() : startSession();
+        stopBtn.onclick = stopSession;
     </script>
 </body>
 </html>
