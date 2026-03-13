@@ -109,7 +109,6 @@
     <script>
         // --- CONFIG & STATE ---
         const MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-        // FIX: Changed "BiDi" to "Bidi" (This causes a 404 connection drop if incorrect)
         const WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
         
         let socket = null;
@@ -118,6 +117,7 @@
         let processor = null;
         let nextTime = 0;
         let isLive = false;
+        let currentBotBubble = null; // For Real-time text appending
 
         // UI Elements
         const mainBtn = document.getElementById('main-btn');
@@ -155,19 +155,26 @@
             const key = apiKeyInput.value.trim();
             if (!key) return alert("Please enter API Key in settings!");
 
+            // 1. Initialize AudioContext on User Click (Crucial for unblocking Audio)
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
+
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
-                // 1. Mic Permission
+                // 2. Mic Permission
                 stream = await navigator.mediaDevices.getUserMedia({
                     audio: micSelect.value ? { deviceId: micSelect.value } : true
                 });
 
-                // 2. WebSocket Connection
+                // 3. WebSocket Connection
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
 
                 socket.onopen = () => {
-                    // FIX: Changed keys to camelCase & responseModalities to "AUDIO"
                     const setup = {
                         setup: {
                             model: MODEL,
@@ -184,15 +191,29 @@
                     initAudio();
                     toggleUI(true);
                     updateStatus('Live', 'bg-emerald-500');
+                    addTranscript("System", "Connection established. You can start speaking now!");
                 };
 
                 socket.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
+                    
+                    // Handle Server Content (Text and Audio)
                     if (data.serverContent?.modelTurn?.parts) {
                         data.serverContent.modelTurn.parts.forEach(p => {
-                            if (p.inlineData) playAudio(p.inlineData.data);
-                            if (p.text) addTranscript("Gemini", p.text);
+                            // Play Audio if exists
+                            if (p.inlineData && p.inlineData.data) {
+                                playAudio(p.inlineData.data);
+                            }
+                            // Append Text if exists
+                            if (p.text) {
+                                appendBotText(p.text);
+                            }
                         });
+                    }
+
+                    // Reset Bot Bubble on Turn Complete
+                    if (data.serverContent?.turnComplete) {
+                        currentBotBubble = null; 
                     }
                 };
 
@@ -203,23 +224,21 @@
                 
                 socket.onerror = (err) => {
                     console.error("Socket Error", err);
-                    alert("Connection Error! Please check your API Key & Internet connection.");
+                    alert("Connection Error! Check your internet or API Key.");
                     stopSession();
                 };
 
             } catch (err) {
                 console.error(err);
-                alert("Mic Access Denied or Initialization Failed!");
+                alert("Mic Access Denied or System Error!");
                 stopSession();
             }
         }
 
         async function initAudio() {
-            // FIX: Set Sample Rate to 16000 to match the API requirements
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             const source = audioCtx.createMediaStreamSource(stream);
 
-            // Worklet for 16-bit PCM
+            // AudioWorklet to capture Mic Data
             const workletCode = `
                 class P extends AudioWorkletProcessor {
                     process(inputs) {
@@ -238,15 +257,28 @@
             await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
             
             processor = new AudioWorkletNode(audioCtx, 'p');
+            
+            // BATCHING LOGIC: Do not spam WebSocket every 8ms. Send data every ~100ms.
+            let pcmBuffer =[];
             processor.port.onmessage = (e) => {
-                if (socket?.readyState === WebSocket.OPEN) {
-                    // Safe base64 conversion preventing Call Stack Exceeded error
-                    const arr = new Uint8Array(e.data);
+                if (!isLive || socket?.readyState !== WebSocket.OPEN) return;
+                
+                const arr = new Uint8Array(e.data);
+                for(let i = 0; i < arr.length; i++) {
+                    pcmBuffer.push(arr[i]);
+                }
+
+                // 3200 bytes = ~100ms audio chunk
+                if (pcmBuffer.length >= 3200) {
+                    const chunk = new Uint8Array(pcmBuffer);
+                    pcmBuffer =[];
+                    
                     let binary = '';
-                    for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+                    for (let i = 0; i < chunk.length; i++) {
+                        binary += String.fromCharCode(chunk[i]);
+                    }
                     const b64 = btoa(binary);
 
-                    // FIX: Changed to camelCase "realtimeInput", "mediaChunks", "mimeType"
                     socket.send(JSON.stringify({
                         realtimeInput: {
                             mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
@@ -257,6 +289,7 @@
             source.connect(processor);
         }
 
+        // Play AI Audio Gaplessly
         function playAudio(b64) {
             const bin = atob(b64);
             const buffer = new ArrayBuffer(bin.length);
@@ -269,16 +302,20 @@
             const f32 = new Float32Array(i16.length);
             for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
-            // Server typically returns 24000Hz PCM
-            const buf = audioCtx.createBuffer(1, f32.length, 24000);
+            const buf = audioCtx.createBuffer(1, f32.length, 24000); // Server sends 24KHz
             buf.copyToChannel(f32, 0);
             const node = audioCtx.createBufferSource();
             node.buffer = buf;
             node.connect(audioCtx.destination);
             
-            const start = Math.max(nextTime, audioCtx.currentTime);
-            node.start(start);
-            nextTime = start + buf.duration;
+            // Fix for audio timing gap
+            let now = audioCtx.currentTime;
+            if (nextTime < now) {
+                nextTime = now;
+            }
+            
+            node.start(nextTime);
+            nextTime += buf.duration;
         }
 
         // --- UI HELPERS ---
@@ -298,22 +335,43 @@
             statusDot.className = `w-2 h-2 rounded-full ${color}`;
         }
 
+        // Create new standalone message
         function addTranscript(role, text) {
-            const p = document.createElement('div');
-            p.className = "animate-in slide-in-from-bottom-2 duration-300";
-            p.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-blue-400">${role}</span>
+            const div = document.createElement('div');
+            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4";
+            div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-blue-400">${role}</span>
                            <p class="text-slate-200 mt-1">${text}</p>`;
-            transcript.appendChild(p);
+            transcript.appendChild(div);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        // Append text chunk by chunk for AI (Live typing effect)
+        function appendBotText(text) {
+            if (!currentBotBubble) {
+                const div = document.createElement('div');
+                div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4";
+                div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Gemini</span>
+                               <p class="text-slate-200 mt-1 bot-text"></p>`;
+                transcript.appendChild(div);
+                currentBotBubble = div.querySelector('.bot-text');
+            }
+            currentBotBubble.innerHTML += text;
             transcript.scrollTop = transcript.scrollHeight;
         }
 
         function stopSession() {
-            if (socket) socket.close();
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
             if (stream) stream.getTracks().forEach(t => t.stop());
-            if (audioCtx) { audioCtx.close(); audioCtx = null; }
+            if (audioCtx) {
+                audioCtx.suspend(); 
+            }
             toggleUI(false);
             updateStatus('Disconnected', 'bg-slate-500');
             nextTime = 0;
+            currentBotBubble = null;
         }
 
         // Mic Enumeration
