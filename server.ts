@@ -26,7 +26,7 @@ async function main() {
     vertexai: false,
     apiKey: GOOGLE_API_KEY,
   };
-  const model = 'gemini-live-2.5-flash-preview';
+  const model = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
   const ai = new GoogleGenAI(options);
   const config: types.LiveConnectConfig = {
