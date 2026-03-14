@@ -107,13 +107,9 @@
             <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to connect</p>
         </div>
 
-        <!-- Footer (Removed Dropdown) -->
-        <div class="px-8 py-4 bg-white/5 flex justify-between items-center shrink-0">
-            <div class="flex items-center gap-2">
-                <iconify-icon icon="lucide:mic-2" class="text-slate-500"></iconify-icon>
-                <span class="text-[10px] font-bold text-slate-500 uppercase">System Audio Active</span>
-            </div>
-            <span class="text-[10px] font-mono text-slate-600">GEMINI • 2.5 FLASH</span>
+        <!-- Footer -->
+        <div class="px-8 py-3 bg-white/5 flex justify-center items-center shrink-0">
+            <span class="text-[10px] font-mono text-slate-500 tracking-widest">ZEPHYR VOICE • 2.5 FLASH</span>
         </div>
     </div>
 
@@ -178,9 +174,9 @@
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
-                // Removed Dropdown, directly getting default mic with noise cancellation
+                // Removed Mic Select, using default system mic with noise suppression
                 stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { echoCancellation: true, noiseSuppression: true }
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
                 });
 
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
@@ -192,44 +188,48 @@
                             generationConfig: {
                                 responseModalities: ["AUDIO"], 
                                 speechConfig: {
-                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } // Using stable voice
+                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
                                 }
                             }
                         }
                     };
                     socket.send(JSON.stringify(setup));
+                    
+                    initAudio();
+                    
+                    isLive = true;
+                    isMicOn = true; 
+                    updateUIState();
+                    updateStatus('Connected', 'bg-emerald-500');
+                    addTranscript("System", "Connected! Speak now or type a message.", "text-emerald-400");
                 };
 
                 socket.onmessage = async (e) => {
-                    const data = JSON.parse(e.data);
-                    console.log("AI Response:", data); // For debugging in console
-                    
-                    // FIX 1: Wait for setupComplete before sending audio
-                    if (data.setupComplete) {
-                        isLive = true;
-                        isMicOn = true; 
-                        updateUIState();
-                        updateStatus('Connected', 'bg-emerald-500');
-                        addTranscript("System", "Connected! You can speak or type your message.", "text-emerald-400");
+                    try {
+                        const data = JSON.parse(e.data);
+                        console.log("AI Response:", data); // For debugging in browser console
                         
-                        initAudio(); // Start mic ONLY after setup is complete
-                        return;
-                    }
-
-                    // Handle AI Text and Audio
-                    if (data.serverContent?.modelTurn?.parts) {
-                        data.serverContent.modelTurn.parts.forEach(p => {
-                            if (p.inlineData && p.inlineData.data) {
-                                playAudio(p.inlineData.data);
+                        if (data.serverContent && data.serverContent.modelTurn) {
+                            const parts = data.serverContent.modelTurn.parts;
+                            if (parts) {
+                                parts.forEach(p => {
+                                    // 1. Handle Audio
+                                    if (p.inlineData && p.inlineData.data) {
+                                        playAudio(p.inlineData.data);
+                                    }
+                                    // 2. Handle Text
+                                    if (p.text) {
+                                        appendBotText(p.text);
+                                    }
+                                });
                             }
-                            if (p.text) {
-                                appendBotText(p.text);
-                            }
-                        });
-                    }
+                        }
 
-                    if (data.serverContent?.turnComplete) {
-                        currentBotBubble = null; 
+                        if (data.serverContent && data.serverContent.turnComplete) {
+                            currentBotBubble = null; 
+                        }
+                    } catch (err) {
+                        console.error("Error processing message:", err);
                     }
                 };
 
@@ -244,16 +244,6 @@
                 alert("Mic Access Denied or System Error!");
                 stopSession();
             }
-        }
-
-        // Helper to convert ArrayBuffer to Base64 safely
-        function arrayBufferToBase64(buffer) {
-            let binary = '';
-            const bytes = new Uint8Array(buffer);
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return window.btoa(binary);
         }
 
         async function initAudio() {
@@ -281,18 +271,23 @@
             processor.port.onmessage = (e) => {
                 if (!isLive || !isMicOn || socket?.readyState !== WebSocket.OPEN) return;
                 
-                const arr = new Uint8Array(e.data);
-                for(let i = 0; i < arr.length; i++) pcmBuffer.push(arr[i]);
+                const bytes = new Uint8Array(e.data);
+                for(let i = 0; i < bytes.length; i++) pcmBuffer.push(bytes[i]);
 
-                // Send chunks of audio
+                // Send data in chunks
                 if (pcmBuffer.length >= 4096) {
                     const chunk = new Uint8Array(pcmBuffer);
                     pcmBuffer =[];
                     
-                    const b64 = arrayBufferToBase64(chunk);
+                    // Safe Base64 Encoding
+                    let binary = '';
+                    for (let i = 0; i < chunk.length; i++) {
+                        binary += String.fromCharCode(chunk[i]);
+                    }
+                    
                     socket.send(JSON.stringify({
                         realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }]
                         }
                     }));
                 }
@@ -301,26 +296,33 @@
         }
 
         function playAudio(b64) {
-            const bin = atob(b64);
-            const buffer = new ArrayBuffer(bin.length);
-            const view = new Uint8Array(buffer);
-            for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
-            
-            const i16 = new Int16Array(buffer);
-            const f32 = new Float32Array(i16.length);
-            for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
+            try {
+                const bin = atob(b64);
+                const buffer = new ArrayBuffer(bin.length);
+                const view = new Uint8Array(buffer);
+                for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+                
+                // FIX: Ensure buffer length is even to prevent RangeError crash!
+                const validLength = buffer.byteLength - (buffer.byteLength % 2);
+                const i16 = new Int16Array(buffer, 0, validLength / 2);
+                
+                const f32 = new Float32Array(i16.length);
+                for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
-            const buf = audioCtx.createBuffer(1, f32.length, 24000);
-            buf.copyToChannel(f32, 0);
-            const node = audioCtx.createBufferSource();
-            node.buffer = buf;
-            node.connect(audioCtx.destination);
-            
-            let now = audioCtx.currentTime;
-            if (nextTime < now) nextTime = now;
-            
-            node.start(nextTime);
-            nextTime += buf.duration;
+                const buf = audioCtx.createBuffer(1, f32.length, 24000);
+                buf.copyToChannel(f32, 0);
+                const node = audioCtx.createBufferSource();
+                node.buffer = buf;
+                node.connect(audioCtx.destination);
+                
+                let now = audioCtx.currentTime;
+                if (nextTime < now) nextTime = now;
+                
+                node.start(nextTime);
+                nextTime += buf.duration;
+            } catch (error) {
+                console.error("Audio Playback Error:", error);
+            }
         }
 
         // --- TEXT CHAT LOGIC ---
@@ -332,7 +334,7 @@
             
             const msg = {
                 clientContent: {
-                    turns: [{ role: "user", parts:[{ text: text }] }],
+                    turns: [{ role: "user", parts: [{ text: text }] }],
                     turnComplete: true
                 }
             };
@@ -363,7 +365,7 @@
                     mainBtn.className = "relative w-20 h-20 rounded-full bg-slate-800 text-red-400 border border-red-500/30 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
                     btnIcon.setAttribute('icon', 'lucide:mic-off');
                     pulseRing.classList.add('hidden');
-                    instruction.innerText = "Mic Muted. Tap to Unmute";
+                    instruction.innerText = "Mic Muted. AI is replying...";
                 }
             } else {
                 chatInput.disabled = true;
@@ -402,7 +404,7 @@
                 transcript.appendChild(div);
                 currentBotBubble = div.querySelector('.bot-text');
             }
-            currentBotBubble.innerHTML += text;
+            currentBotBubble.textContent += text; // Safe text appending
             transcript.scrollTop = transcript.scrollHeight;
         }
 
@@ -426,14 +428,13 @@
                 startSession(); 
             } else {
                 isMicOn = !isMicOn; 
-                updateUIState();
                 
-                // FIX 2: Force AI to respond immediately when Mic is Muted
+                // FIX: Force AI to reply when user mutes the mic!
                 if (!isMicOn && socket?.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        clientContent: { turnComplete: true }
-                    }));
+                    socket.send(JSON.stringify({ clientContent: { turnComplete: true } }));
                 }
+                
+                updateUIState();
             }
         };
 
