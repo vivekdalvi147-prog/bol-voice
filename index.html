@@ -3,452 +3,335 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Live Agent - Pro Max</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://code.iconify.design/iconify-icon/3.0.0/iconify-icon.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>Gemini AI Chatbot</title>
     <style>
-        body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            background: radial-gradient(circle at top right, #1e293b, #020617);
-            color: #f8fafc;
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f3f4f6;
+            --chat-bg: #ffffff;
+            --text-dark: #1f2937;
+            --text-light: #f9fafb;
+            --bot-msg-bg: #f3f4f6;
+            --border-color: #e5e7eb;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #app {
+            width: 100%;
+            max-width: 800px;
+            height: 95vh;
+            background: var(--chat-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
         }
-        .glass {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+
+        /* --- API Key Setup Screen --- */
+        #api-setup {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            padding: 2rem;
+            text-align: center;
         }
-        .mic-shadow {
-            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+
+        #api-setup h2 { margin-bottom: 1rem; }
+        #api-setup p { margin-bottom: 2rem; color: #6b7280; font-size: 0.95rem; }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            max-width: 400px;
         }
-        .live-pulse {
-            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+
+        input[type="password"], input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
         }
-        @keyframes pulse-ring {
-            0% { transform: scale(.33); }
-            80%, 100% { opacity: 0; }
+
+        input:focus { border-color: var(--primary); }
+
+        button {
+            padding: 12px 20px;
+            background-color: var(--primary);
+            color: var(--text-light);
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
         }
-        #transcript::-webkit-scrollbar { width: 5px; }
-        #transcript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+        button:hover { background-color: var(--primary-hover); }
+        button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+
+        /* --- Chat Interface --- */
+        #chat-interface {
+            display: none; /* Hidden until API key is set */
+            flex-direction: column;
+            height: 100%;
+        }
+
+        #chat-header {
+            padding: 1rem 1.5rem;
+            background: var(--chat-bg);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            display: flex;
+            width: 100%;
+        }
+
+        .message.user { justify-content: flex-end; }
+        .message.model { justify-content: flex-start; }
+
+        .bubble {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            white-space: pre-wrap; /* Keeps formatting and line breaks */
+            word-wrap: break-word;
+        }
+
+        .message.user .bubble {
+            background-color: var(--primary);
+            color: var(--text-light);
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.model .bubble {
+            background-color: var(--bot-msg-bg);
+            color: var(--text-dark);
+            border-bottom-left-radius: 2px;
+        }
+
+        #input-area {
+            padding: 1rem 1.5rem;
+            background: var(--chat-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+        }
+
+        .loader {
+            display: inline-block;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
+<body>
 
-    <div class="w-full max-w-lg glass rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col h-[90vh]">
-        <!-- Status Bar -->
-        <div class="px-8 py-5 flex justify-between items-center border-b border-white/5 shrink-0">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
-                    <iconify-icon icon="logos:google-gemini" width="24"></iconify-icon>
-                </div>
-                <div>
-                    <h1 class="text-lg font-bold tracking-tight">Gemini Live</h1>
-                    <div class="flex items-center gap-2">
-                        <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-                        <span id="status-text" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Disconnected</span>
-                    </div>
-                </div>
-            </div>
-            <button id="settings-toggle" class="text-slate-400 hover:text-white transition-colors">
-                <iconify-icon icon="lucide:settings" width="20"></iconify-icon>
-            </button>
-        </div>
-
-        <!-- Settings Panel -->
-        <div id="settings-panel" class="px-8 py-4 bg-black/20 border-b border-white/5 hidden shrink-0">
-            <label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">API Configuration</label>
-            <div class="flex gap-2">
-                <input id="api-key" type="password" placeholder="Enter Gemini API Key" 
-                    class="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-blue-500 transition-all">
-                <button id="save-key" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-xs font-bold transition-all">SAVE</button>
+    <div id="app">
+        <!-- Setup Screen -->
+        <div id="api-setup">
+            <h2>Gemini 3.1 Flash Lite</h2>
+            <p>Enter your Google Gemini API key to start chatting. The key is only stored locally in your browser session.</p>
+            <div class="input-group">
+                <input type="password" id="api-key-input" placeholder="AIzaSy...">
+                <button id="start-btn">Start Chat</button>
             </div>
         </div>
 
-        <!-- Main Content (Transcript + Chat Input) -->
-        <div class="p-6 flex-1 flex flex-col overflow-hidden gap-4">
-            
-            <!-- Transcript Area -->
-            <div id="transcript-container" class="relative flex-1 bg-black/20 rounded-3xl border border-white/5 p-6 overflow-hidden flex flex-col">
-                <div id="transcript" class="flex-1 overflow-y-auto text-sm text-slate-300 leading-relaxed space-y-4 pb-4">
-                    <p class="text-slate-500 italic text-center mt-20">Click the Mic button below to connect...</p>
-                </div>
+        <!-- Chat Screen -->
+        <div id="chat-interface">
+            <div id="chat-header">
+                <span>AI Chatbot</span>
+                <span style="font-size: 0.8rem; font-weight: normal; color: #6b7280;">Model: gemini-3.1-flash-lite-preview</span>
             </div>
-
-            <!-- Text Input Area -->
-            <div class="flex gap-2 shrink-0">
-                <input id="chat-input" type="text" placeholder="Type a message..." disabled
-                    class="flex-1 bg-black/30 border border-white/10 rounded-2xl px-5 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                <button id="send-btn" disabled class="bg-blue-600 hover:bg-blue-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-                    <iconify-icon icon="lucide:send" width="20"></iconify-icon>
-                </button>
+            <div id="messages">
+                <!-- Messages will appear here -->
             </div>
-        </div>
-
-        <!-- Controls (Mic & End Call) -->
-        <div class="pb-6 pt-2 flex flex-col items-center justify-center gap-4 shrink-0">
-            <div class="flex items-center justify-center gap-6">
-                <!-- End Call Button -->
-                <button id="end-btn" class="hidden w-12 h-12 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-lg">
-                    <iconify-icon icon="lucide:phone-off" width="20"></iconify-icon>
-                </button>
-
-                <!-- Main Mic Button -->
-                <div class="relative">
-                    <div id="pulse-ring" class="absolute inset-0 rounded-full bg-blue-500/30 live-pulse hidden"></div>
-                    <button id="main-btn" class="relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow">
-                        <iconify-icon id="btn-icon" icon="lucide:mic" width="32"></iconify-icon>
-                    </button>
-                </div>
+            <div id="input-area">
+                <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off">
+                <button id="send-btn">Send</button>
             </div>
-            
-            <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to Connect</p>
-        </div>
-
-        <!-- Footer -->
-        <div class="px-8 py-3 bg-white/5 flex justify-center items-center shrink-0">
-            <span class="text-[10px] font-mono text-slate-500 tracking-widest">ZEPHYR VOICE • 2.5 FLASH</span>
         </div>
     </div>
 
-    <script>
-        // --- CONFIG & STATE ---
-        const MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-        const WS_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
-        
-        let socket = null;
-        let audioCtx = null;
-        let stream = null;
-        let processor = null;
-        let nextTime = 0;
-        
-        let isConnected = false;   
-        let isMicListening = false;  
-        let currentBotBubble = null; 
+    <!-- Main Logic -->
+    <script type="module">
+        // Importing the official SDK directly into the browser via esm.sh CDN
+        import { GoogleGenAI } from "https://esm.sh/@google/genai";
 
-        // UI Elements
-        const mainBtn = document.getElementById('main-btn');
-        const btnIcon = document.getElementById('btn-icon');
-        const endBtn = document.getElementById('end-btn');
-        const pulseRing = document.getElementById('pulse-ring');
-        const statusDot = document.getElementById('status-dot');
-        const statusText = document.getElementById('status-text');
-        const transcript = document.getElementById('transcript');
-        const apiKeyInput = document.getElementById('api-key');
-        const settingsPanel = document.getElementById('settings-panel');
-        const chatInput = document.getElementById('chat-input');
+        // Application State
+        let ai = null;
+        let chatHistory =[]; 
+
+        // DOM Elements
+        const apiSetupDiv = document.getElementById('api-setup');
+        const chatInterfaceDiv = document.getElementById('chat-interface');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const startBtn = document.getElementById('start-btn');
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
-        const instruction = document.getElementById('instruction');
 
-        // --- API KEY PERSISTENCE ---
-        window.onload = () => {
-            const savedKey = localStorage.getItem('gemini_api_key');
-            if (savedKey) {
-                apiKeyInput.value = savedKey;
-                statusText.innerText = "Ready to connect";
+        // Initialize API and UI
+        startBtn.addEventListener('click', () => {
+            const apiKey = apiKeyInput.value.trim();
+            if (apiKey) {
+                try {
+                    // Initialize the AI client based on your provided code
+                    ai = new GoogleGenAI({ apiKey: apiKey });
+                    apiSetupDiv.style.display = 'none';
+                    chatInterfaceDiv.style.display = 'flex';
+                    userInput.focus();
+                } catch (err) {
+                    alert("Error initializing AI client: " + err.message);
+                }
             } else {
-                settingsPanel.classList.remove('hidden');
+                alert("Please enter a valid API Key.");
             }
-        };
+        });
 
-        document.getElementById('save-key').onclick = () => {
-            localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
-            settingsPanel.classList.add('hidden');
-            alert("API Key Saved!");
-        };
+        // Handle sending messages
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text || !ai) return;
 
-        document.getElementById('settings-toggle').onclick = () => settingsPanel.classList.toggle('hidden');
+            // 1. Clear input & disable UI temporarily
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
 
-        // --- CORE LOGIC ---
-        async function startSession() {
-            const key = apiKeyInput.value.trim();
-            if (!key) return alert("Please enter API Key in settings!");
+            // 2. Add User Message to UI and History
+            appendMessage('user', text);
+            chatHistory.push({
+                role: 'user',
+                parts: [{ text: text }]
+            });
 
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            }
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-            updateStatus('Connecting...', 'bg-yellow-500');
+            // 3. Create an empty bubble for the AI response
+            const botBubble = appendMessage('model', 'Thinking...');
+            botBubble.classList.add('loader');
 
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { echoCancellation: true, noiseSuppression: true }
+                // Configurations directly from your provided snippet
+                const tools =[
+                    { googleSearch: {} }
+                ];
+                const config = {
+                    thinkingConfig: {
+                        thinkingLevel: 'MINIMAL',
+                    },
+                    tools: tools,
+                };
+                const model = 'gemini-3.1-flash-lite-preview';
+
+                // Call the API with Streaming
+                const response = await ai.models.generateContentStream({
+                    model: model,
+                    config: config,
+                    contents: chatHistory, 
                 });
 
-                socket = new WebSocket(`${WS_URL}?key=${key}`);
+                botBubble.textContent = ''; // Clear "Thinking..."
+                botBubble.classList.remove('loader');
+                let fullResponse = '';
 
-                socket.onopen = () => {
-                    // Exact config matching your Node.js code
-                    const setupMessage = {
-                        setup: {
-                            model: MODEL,
-                            generationConfig: {
-                                responseModalities: ["AUDIO"], 
-                                speechConfig: {
-                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
-                                }
-                            }
-                        }
-                    };
-                    socket.send(JSON.stringify(setupMessage));
-                    
-                    initAudioCapture();
-                    
-                    isConnected = true;
-                    isMicListening = false; // Start with mic OFF, user has to tap to speak
-                    updateUIState();
-                    updateStatus('Connected', 'bg-emerald-500');
-                    addTranscript("System", "Connected! Tap the Mic to speak, or type a message.", "text-emerald-400");
-                };
-
-                socket.onmessage = async (e) => {
-                    try {
-                        const data = JSON.parse(e.data);
-                        
-                        if (data.serverContent && data.serverContent.modelTurn) {
-                            const parts = data.serverContent.modelTurn.parts;
-                            if (parts) {
-                                parts.forEach(p => {
-                                    // Handle Audio Response
-                                    if (p.inlineData && p.inlineData.data) {
-                                        playAudio(p.inlineData.data);
-                                    }
-                                    // Handle Text Response
-                                    if (p.text) {
-                                        appendBotText(p.text);
-                                    }
-                                });
-                            }
-                        }
-
-                        if (data.serverContent && data.serverContent.turnComplete) {
-                            currentBotBubble = null; 
-                        }
-                    } catch (err) {
-                        console.error("Error parsing message:", err);
-                    }
-                };
-
-                socket.onclose = () => stopSession();
-                socket.onerror = () => {
-                    alert("Connection Error! Check your internet or API Key.");
-                    stopSession();
-                };
-
-            } catch (err) {
-                console.error(err);
-                alert("Mic Access Denied!");
-                stopSession();
-            }
-        }
-
-        async function initAudioCapture() {
-            const source = audioCtx.createMediaStreamSource(stream);
-            const workletCode = `
-                class P extends AudioWorkletProcessor {
-                    process(inputs) {
-                        const input = inputs[0][0];
-                        if (input) {
-                            const i16 = new Int16Array(input.length);
-                            for (let i=0; i<input.length; i++) i16[i] = input[i] * 0x7FFF;
-                            this.port.postMessage(i16.buffer);
-                        }
-                        return true;
+                // Read chunks as they arrive
+                for await (const chunk of response) {
+                    if (chunk.text) {
+                        fullResponse += chunk.text;
+                        botBubble.textContent = fullResponse;
+                        scrollToBottom();
                     }
                 }
-                registerProcessor('p', P);
-            `;
-            const blob = new Blob([workletCode], { type: 'application/javascript' });
-            await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
-            
-            processor = new AudioWorkletNode(audioCtx, 'p');
-            
-            let pcmBuffer =[];
-            processor.port.onmessage = (e) => {
-                // Only send audio chunks if Mic is actively listening
-                if (!isConnected || !isMicListening || socket?.readyState !== WebSocket.OPEN) return;
-                
-                const bytes = new Uint8Array(e.data);
-                for(let i = 0; i < bytes.length; i++) pcmBuffer.push(bytes[i]);
 
-                // Send data in chunks of ~2048 bytes
-                if (pcmBuffer.length >= 2048) {
-                    const chunk = new Uint8Array(pcmBuffer);
-                    pcmBuffer =[];
-                    
-                    // Convert to Base64 safely
-                    let binary = '';
-                    for (let i = 0; i < chunk.length; i++) {
-                        binary += String.fromCharCode(chunk[i]);
-                    }
-                    const base64Audio = btoa(binary);
-                    
-                    socket.send(JSON.stringify({
-                        realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: base64Audio }]
-                        }
-                    }));
-                }
-            };
-            source.connect(processor);
-        }
+                // Save the AI's final response to the history so it remembers the context
+                chatHistory.push({
+                    role: 'model',
+                    parts:[{ text: fullResponse }]
+                });
 
-        function playAudio(base64Data) {
-            try {
-                const binaryString = atob(base64Data);
-                const buffer = new ArrayBuffer(binaryString.length);
-                const view = new Uint8Array(buffer);
-                for (let i = 0; i < binaryString.length; i++) {
-                    view[i] = binaryString.charCodeAt(i);
-                }
-                
-                // Ensure even length for 16-bit PCM
-                const validLength = buffer.byteLength - (buffer.byteLength % 2);
-                const int16Array = new Int16Array(buffer, 0, validLength / 2);
-                
-                const float32Array = new Float32Array(int16Array.length);
-                for (let i = 0; i < int16Array.length; i++) {
-                    float32Array[i] = int16Array[i] / 32768.0;
-                }
-
-                const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
-                audioBuffer.getChannelData(0).set(float32Array);
-                
-                const source = audioCtx.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(audioCtx.destination);
-                
-                let currentTime = audioCtx.currentTime;
-                if (nextTime < currentTime) nextTime = currentTime;
-                
-                source.start(nextTime);
-                nextTime += audioBuffer.duration;
             } catch (error) {
-                console.error("Audio Playback Error:", error);
-            }
-        }
-
-        // --- TEXT CHAT LOGIC ---
-        function sendTextMessage() {
-            const text = chatInput.value.trim();
-            if (!text || !isConnected || socket?.readyState !== WebSocket.OPEN) return;
-
-            addTranscript("You", text, "text-blue-400");
-            
-            // Sending text AND turnComplete: true (Forces AI to reply)
-            const msg = {
-                clientContent: {
-                    turns:[{ role: "user", parts: [{ text: text }] }],
-                    turnComplete: true
-                }
-            };
-            socket.send(JSON.stringify(msg));
-            chatInput.value = "";
-        }
-
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendTextMessage();
-        });
-        sendBtn.onclick = sendTextMessage;
-
-        // --- UI HELPERS ---
-        function updateUIState() {
-            if (isConnected) {
-                chatInput.disabled = false;
+                console.error(error);
+                botBubble.classList.remove('loader');
+                botBubble.textContent = "Error: " + error.message;
+            } finally {
+                // Re-enable input
+                userInput.disabled = false;
                 sendBtn.disabled = false;
-                endBtn.classList.remove('hidden');
-                
-                if (transcript.innerText.includes("Click the Mic button")) transcript.innerHTML = "";
-
-                if (isMicListening) {
-                    // Mic is ON - Recording
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
-                    btnIcon.setAttribute('icon', 'lucide:mic');
-                    pulseRing.classList.remove('hidden');
-                    instruction.innerText = "Listening... Tap to Stop & Send";
-                } else {
-                    // Mic is OFF - Waiting for AI or User
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
-                    btnIcon.setAttribute('icon', 'lucide:mic');
-                    pulseRing.classList.add('hidden');
-                    instruction.innerText = "Tap to Speak";
-                }
-            } else {
-                // Disconnected
-                chatInput.disabled = true;
-                sendBtn.disabled = true;
-                endBtn.classList.add('hidden');
-                pulseRing.classList.add('hidden');
-                
-                mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
-                btnIcon.setAttribute('icon', 'lucide:mic');
-                instruction.innerText = "Tap Mic to Connect";
+                userInput.focus();
             }
         }
 
-        function updateStatus(txt, color) {
-            statusText.innerText = txt;
-            statusDot.className = `w-2 h-2 rounded-full ${color}`;
-        }
+        // Event Listeners for Chat
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
 
-        function addTranscript(role, text, colorClass = "text-blue-400") {
-            const div = document.createElement('div');
-            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-white/5 p-3 rounded-2xl w-fit max-w-[85%]";
-            if(role === "You") div.className += " ml-auto bg-blue-600/20 border border-blue-500/20";
+        // Helper functions
+        function appendMessage(role, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
             
-            div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest ${colorClass}">${role}</span>
-                           <p class="text-slate-200 mt-1">${text}</p>`;
-            transcript.appendChild(div);
-            transcript.scrollTop = transcript.scrollHeight;
-        }
-
-        function appendBotText(text) {
-            if (!currentBotBubble) {
-                const div = document.createElement('div');
-                div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-white/5 p-3 rounded-2xl w-fit max-w-[85%] border border-white/10";
-                div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Gemini</span>
-                               <p class="text-slate-200 mt-1 bot-text"></p>`;
-                transcript.appendChild(div);
-                currentBotBubble = div.querySelector('.bot-text');
-            }
-            currentBotBubble.textContent += text; 
-            transcript.scrollTop = transcript.scrollHeight;
-        }
-
-        function stopSession() {
-            isConnected = false;
-            isMicListening = false;
-            if (socket) { socket.close(); socket = null; }
-            if (stream) stream.getTracks().forEach(t => t.stop());
-            if (audioCtx) audioCtx.suspend(); 
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'bubble';
+            bubbleDiv.textContent = text;
             
-            updateUIState();
-            updateStatus('Disconnected', 'bg-slate-500');
-            nextTime = 0;
-            currentBotBubble = null;
-            addTranscript("System", "Session ended.", "text-red-400");
+            messageDiv.appendChild(bubbleDiv);
+            messagesDiv.appendChild(messageDiv);
+            scrollToBottom();
+            
+            return bubbleDiv; // Return bubble to allow updating text later (for streaming)
         }
 
-        // --- BUTTON ACTIONS ---
-        mainBtn.onclick = () => {
-            if (!isConnected) {
-                // 1. First click connects to the API
-                startSession(); 
-            } else {
-                // 2. Subsequent clicks toggle the Mic
-                isMicListening = !isMicListening; 
-                
-                // CRITICAL FIX: When user stops listening, send turnComplete to force AI response!
-                if (!isMicListening && socket?.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({ clientContent: { turnComplete: true } }));
-                }
-                
-                updateUIState();
-            }
-        };
-
-        endBtn.onclick = stopSession; 
+        function scrollToBottom() {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
     </script>
 </body>
 </html>
