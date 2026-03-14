@@ -90,7 +90,7 @@
         <!-- Controls (Mic & End Call) -->
         <div class="pb-8 pt-2 flex flex-col items-center justify-center gap-4 shrink-0">
             <div class="flex items-center justify-center gap-6">
-                <!-- End Call Button (Hidden initially) -->
+                <!-- End Call Button -->
                 <button id="end-btn" class="hidden w-12 h-12 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-lg">
                     <iconify-icon icon="lucide:phone-off" width="20"></iconify-icon>
                 </button>
@@ -107,15 +107,13 @@
             <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to connect</p>
         </div>
 
-        <!-- Footer -->
-        <div class="px-8 py-3 bg-white/5 flex justify-between items-center shrink-0">
+        <!-- Footer (Removed Dropdown) -->
+        <div class="px-8 py-4 bg-white/5 flex justify-between items-center shrink-0">
             <div class="flex items-center gap-2">
                 <iconify-icon icon="lucide:mic-2" class="text-slate-500"></iconify-icon>
-                <select id="mic-select" class="bg-transparent text-[10px] font-bold text-slate-500 outline-none cursor-pointer uppercase w-24 truncate">
-                    <option value="">Default Mic</option>
-                </select>
+                <span class="text-[10px] font-bold text-slate-500 uppercase">System Audio Active</span>
             </div>
-            <span class="text-[10px] font-mono text-slate-600">ZEPHYR • 2.5 FLASH</span>
+            <span class="text-[10px] font-mono text-slate-600">GEMINI • 2.5 FLASH</span>
         </div>
     </div>
 
@@ -130,8 +128,8 @@
         let processor = null;
         let nextTime = 0;
         
-        let isLive = false;   // Is WebSocket Connected?
-        let isMicOn = false;  // Is Mic currently listening/sending?
+        let isLive = false;   
+        let isMicOn = false;  
         let currentBotBubble = null; 
 
         // UI Elements
@@ -144,7 +142,6 @@
         const transcript = document.getElementById('transcript');
         const apiKeyInput = document.getElementById('api-key');
         const settingsPanel = document.getElementById('settings-panel');
-        const micSelect = document.getElementById('mic-select');
         const chatInput = document.getElementById('chat-input');
         const sendBtn = document.getElementById('send-btn');
         const instruction = document.getElementById('instruction');
@@ -181,8 +178,9 @@
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
+                // Removed Dropdown, directly getting default mic with noise cancellation
                 stream = await navigator.mediaDevices.getUserMedia({
-                    audio: micSelect.value ? { deviceId: micSelect.value, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true }
+                    audio: { echoCancellation: true, noiseSuppression: true }
                 });
 
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
@@ -192,27 +190,33 @@
                         setup: {
                             model: MODEL,
                             generationConfig: {
-                                responseModalities: ["AUDIO"], // This returns BOTH Audio and Text
+                                responseModalities: ["AUDIO"], 
                                 speechConfig: {
-                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } // Using stable voice
                                 }
                             }
                         }
                     };
                     socket.send(JSON.stringify(setup));
-                    
-                    initAudio();
-                    
-                    isLive = true;
-                    isMicOn = true; // Mic starts ON by default
-                    updateUIState();
-                    updateStatus('Connected', 'bg-emerald-500');
-                    addTranscript("System", "Connected! You can speak or type your message.", "text-emerald-400");
                 };
 
                 socket.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
+                    console.log("AI Response:", data); // For debugging in console
                     
+                    // FIX 1: Wait for setupComplete before sending audio
+                    if (data.setupComplete) {
+                        isLive = true;
+                        isMicOn = true; 
+                        updateUIState();
+                        updateStatus('Connected', 'bg-emerald-500');
+                        addTranscript("System", "Connected! You can speak or type your message.", "text-emerald-400");
+                        
+                        initAudio(); // Start mic ONLY after setup is complete
+                        return;
+                    }
+
+                    // Handle AI Text and Audio
                     if (data.serverContent?.modelTurn?.parts) {
                         data.serverContent.modelTurn.parts.forEach(p => {
                             if (p.inlineData && p.inlineData.data) {
@@ -242,6 +246,16 @@
             }
         }
 
+        // Helper to convert ArrayBuffer to Base64 safely
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
         async function initAudio() {
             const source = audioCtx.createMediaStreamSource(stream);
             const workletCode = `
@@ -265,21 +279,20 @@
             
             let pcmBuffer =[];
             processor.port.onmessage = (e) => {
-                // ONLY send audio if Live AND Mic is ON
                 if (!isLive || !isMicOn || socket?.readyState !== WebSocket.OPEN) return;
                 
                 const arr = new Uint8Array(e.data);
                 for(let i = 0; i < arr.length; i++) pcmBuffer.push(arr[i]);
 
-                if (pcmBuffer.length >= 3200) {
+                // Send chunks of audio
+                if (pcmBuffer.length >= 4096) {
                     const chunk = new Uint8Array(pcmBuffer);
                     pcmBuffer =[];
-                    let binary = '';
-                    for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
                     
+                    const b64 = arrayBufferToBase64(chunk);
                     socket.send(JSON.stringify({
                         realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }]
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
                         }
                     }));
                 }
@@ -315,10 +328,8 @@
             const text = chatInput.value.trim();
             if (!text || !isLive || socket?.readyState !== WebSocket.OPEN) return;
 
-            // Show user message in UI
             addTranscript("You", text, "text-blue-400");
             
-            // Send text to Gemini API
             const msg = {
                 clientContent: {
                     turns: [{ role: "user", parts:[{ text: text }] }],
@@ -326,7 +337,6 @@
                 }
             };
             socket.send(JSON.stringify(msg));
-            
             chatInput.value = "";
         }
 
@@ -345,20 +355,17 @@
                 if (transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
 
                 if (isMicOn) {
-                    // Mic is Active
                     mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
                     btnIcon.setAttribute('icon', 'lucide:mic');
                     pulseRing.classList.remove('hidden');
                     instruction.innerText = "Listening... Tap to Mute";
                 } else {
-                    // Mic is Muted
                     mainBtn.className = "relative w-20 h-20 rounded-full bg-slate-800 text-red-400 border border-red-500/30 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
                     btnIcon.setAttribute('icon', 'lucide:mic-off');
                     pulseRing.classList.add('hidden');
                     instruction.innerText = "Mic Muted. Tap to Unmute";
                 }
             } else {
-                // Disconnected State
                 chatInput.disabled = true;
                 sendBtn.disabled = true;
                 endBtn.classList.add('hidden');
@@ -416,25 +423,21 @@
         // --- BUTTON ACTIONS ---
         mainBtn.onclick = () => {
             if (!isLive) {
-                startSession(); // Connect if not connected
+                startSession(); 
             } else {
-                isMicOn = !isMicOn; // Toggle Mic if already connected
+                isMicOn = !isMicOn; 
                 updateUIState();
+                
+                // FIX 2: Force AI to respond immediately when Mic is Muted
+                if (!isMicOn && socket?.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        clientContent: { turnComplete: true }
+                    }));
+                }
             }
         };
 
-        endBtn.onclick = stopSession; // Red button to disconnect
-
-        // Mic Enumeration
-        navigator.mediaDevices.enumerateDevices().then(devs => {
-            micSelect.innerHTML = '<option value="">Default Mic</option>';
-            devs.filter(d => d.kind === 'audioinput').forEach(d => {
-                const o = document.createElement('option');
-                o.value = d.deviceId;
-                o.text = d.label || 'Microphone';
-                micSelect.appendChild(o);
-            });
-        });
+        endBtn.onclick = stopSession; 
     </script>
 </body>
 </html>
