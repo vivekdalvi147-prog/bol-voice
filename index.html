@@ -35,7 +35,7 @@
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
 
-    <div class="w-full max-w-lg glass rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col h-[85vh]">
+    <div class="w-full max-w-lg glass rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col h-[90vh]">
         <!-- Status Bar -->
         <div class="px-8 py-5 flex justify-between items-center border-b border-white/5 shrink-0">
             <div class="flex items-center gap-3">
@@ -63,7 +63,6 @@
                     class="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-blue-500 transition-all">
                 <button id="save-key" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-xs font-bold transition-all">SAVE</button>
             </div>
-            <p class="text-[9px] text-slate-500 mt-2 italic">Key is saved locally in your browser.</p>
         </div>
 
         <!-- Main Content (Transcript + Chat Input) -->
@@ -72,9 +71,8 @@
             <!-- Transcript Area -->
             <div id="transcript-container" class="relative flex-1 bg-black/20 rounded-3xl border border-white/5 p-6 overflow-hidden flex flex-col">
                 <div id="transcript" class="flex-1 overflow-y-auto text-sm text-slate-300 leading-relaxed space-y-4 pb-4">
-                    <p class="text-slate-500 italic text-center mt-20">Connect to start the conversation...</p>
+                    <p class="text-slate-500 italic text-center mt-20">Click the Mic button below to connect...</p>
                 </div>
-                <div class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-slate-900/90 to-transparent pointer-events-none"></div>
             </div>
 
             <!-- Text Input Area -->
@@ -88,7 +86,7 @@
         </div>
 
         <!-- Controls (Mic & End Call) -->
-        <div class="pb-8 pt-2 flex flex-col items-center justify-center gap-4 shrink-0">
+        <div class="pb-6 pt-2 flex flex-col items-center justify-center gap-4 shrink-0">
             <div class="flex items-center justify-center gap-6">
                 <!-- End Call Button -->
                 <button id="end-btn" class="hidden w-12 h-12 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-lg">
@@ -104,7 +102,7 @@
                 </div>
             </div>
             
-            <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to connect</p>
+            <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to Connect</p>
         </div>
 
         <!-- Footer -->
@@ -124,8 +122,8 @@
         let processor = null;
         let nextTime = 0;
         
-        let isLive = false;   
-        let isMicOn = false;  
+        let isConnected = false;   
+        let isMicListening = false;  
         let currentBotBubble = null; 
 
         // UI Elements
@@ -174,15 +172,15 @@
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
-                // Removed Mic Select, using default system mic with noise suppression
                 stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                    audio: { echoCancellation: true, noiseSuppression: true }
                 });
 
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
 
                 socket.onopen = () => {
-                    const setup = {
+                    // Exact config matching your Node.js code
+                    const setupMessage = {
                         setup: {
                             model: MODEL,
                             generationConfig: {
@@ -193,31 +191,30 @@
                             }
                         }
                     };
-                    socket.send(JSON.stringify(setup));
+                    socket.send(JSON.stringify(setupMessage));
                     
-                    initAudio();
+                    initAudioCapture();
                     
-                    isLive = true;
-                    isMicOn = true; 
+                    isConnected = true;
+                    isMicListening = false; // Start with mic OFF, user has to tap to speak
                     updateUIState();
                     updateStatus('Connected', 'bg-emerald-500');
-                    addTranscript("System", "Connected! Speak now or type a message.", "text-emerald-400");
+                    addTranscript("System", "Connected! Tap the Mic to speak, or type a message.", "text-emerald-400");
                 };
 
                 socket.onmessage = async (e) => {
                     try {
                         const data = JSON.parse(e.data);
-                        console.log("AI Response:", data); // For debugging in browser console
                         
                         if (data.serverContent && data.serverContent.modelTurn) {
                             const parts = data.serverContent.modelTurn.parts;
                             if (parts) {
                                 parts.forEach(p => {
-                                    // 1. Handle Audio
+                                    // Handle Audio Response
                                     if (p.inlineData && p.inlineData.data) {
                                         playAudio(p.inlineData.data);
                                     }
-                                    // 2. Handle Text
+                                    // Handle Text Response
                                     if (p.text) {
                                         appendBotText(p.text);
                                     }
@@ -229,7 +226,7 @@
                             currentBotBubble = null; 
                         }
                     } catch (err) {
-                        console.error("Error processing message:", err);
+                        console.error("Error parsing message:", err);
                     }
                 };
 
@@ -241,12 +238,12 @@
 
             } catch (err) {
                 console.error(err);
-                alert("Mic Access Denied or System Error!");
+                alert("Mic Access Denied!");
                 stopSession();
             }
         }
 
-        async function initAudio() {
+        async function initAudioCapture() {
             const source = audioCtx.createMediaStreamSource(stream);
             const workletCode = `
                 class P extends AudioWorkletProcessor {
@@ -269,25 +266,27 @@
             
             let pcmBuffer =[];
             processor.port.onmessage = (e) => {
-                if (!isLive || !isMicOn || socket?.readyState !== WebSocket.OPEN) return;
+                // Only send audio chunks if Mic is actively listening
+                if (!isConnected || !isMicListening || socket?.readyState !== WebSocket.OPEN) return;
                 
                 const bytes = new Uint8Array(e.data);
                 for(let i = 0; i < bytes.length; i++) pcmBuffer.push(bytes[i]);
 
-                // Send data in chunks
-                if (pcmBuffer.length >= 4096) {
+                // Send data in chunks of ~2048 bytes
+                if (pcmBuffer.length >= 2048) {
                     const chunk = new Uint8Array(pcmBuffer);
                     pcmBuffer =[];
                     
-                    // Safe Base64 Encoding
+                    // Convert to Base64 safely
                     let binary = '';
                     for (let i = 0; i < chunk.length; i++) {
                         binary += String.fromCharCode(chunk[i]);
                     }
+                    const base64Audio = btoa(binary);
                     
                     socket.send(JSON.stringify({
                         realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }]
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: base64Audio }]
                         }
                     }));
                 }
@@ -295,31 +294,36 @@
             source.connect(processor);
         }
 
-        function playAudio(b64) {
+        function playAudio(base64Data) {
             try {
-                const bin = atob(b64);
-                const buffer = new ArrayBuffer(bin.length);
+                const binaryString = atob(base64Data);
+                const buffer = new ArrayBuffer(binaryString.length);
                 const view = new Uint8Array(buffer);
-                for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+                for (let i = 0; i < binaryString.length; i++) {
+                    view[i] = binaryString.charCodeAt(i);
+                }
                 
-                // FIX: Ensure buffer length is even to prevent RangeError crash!
+                // Ensure even length for 16-bit PCM
                 const validLength = buffer.byteLength - (buffer.byteLength % 2);
-                const i16 = new Int16Array(buffer, 0, validLength / 2);
+                const int16Array = new Int16Array(buffer, 0, validLength / 2);
                 
-                const f32 = new Float32Array(i16.length);
-                for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
+                const float32Array = new Float32Array(int16Array.length);
+                for (let i = 0; i < int16Array.length; i++) {
+                    float32Array[i] = int16Array[i] / 32768.0;
+                }
 
-                const buf = audioCtx.createBuffer(1, f32.length, 24000);
-                buf.copyToChannel(f32, 0);
-                const node = audioCtx.createBufferSource();
-                node.buffer = buf;
-                node.connect(audioCtx.destination);
+                const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 24000);
+                audioBuffer.getChannelData(0).set(float32Array);
                 
-                let now = audioCtx.currentTime;
-                if (nextTime < now) nextTime = now;
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtx.destination);
                 
-                node.start(nextTime);
-                nextTime += buf.duration;
+                let currentTime = audioCtx.currentTime;
+                if (nextTime < currentTime) nextTime = currentTime;
+                
+                source.start(nextTime);
+                nextTime += audioBuffer.duration;
             } catch (error) {
                 console.error("Audio Playback Error:", error);
             }
@@ -328,13 +332,14 @@
         // --- TEXT CHAT LOGIC ---
         function sendTextMessage() {
             const text = chatInput.value.trim();
-            if (!text || !isLive || socket?.readyState !== WebSocket.OPEN) return;
+            if (!text || !isConnected || socket?.readyState !== WebSocket.OPEN) return;
 
             addTranscript("You", text, "text-blue-400");
             
+            // Sending text AND turnComplete: true (Forces AI to reply)
             const msg = {
                 clientContent: {
-                    turns: [{ role: "user", parts: [{ text: text }] }],
+                    turns:[{ role: "user", parts: [{ text: text }] }],
                     turnComplete: true
                 }
             };
@@ -349,25 +354,28 @@
 
         // --- UI HELPERS ---
         function updateUIState() {
-            if (isLive) {
+            if (isConnected) {
                 chatInput.disabled = false;
                 sendBtn.disabled = false;
                 endBtn.classList.remove('hidden');
                 
-                if (transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
+                if (transcript.innerText.includes("Click the Mic button")) transcript.innerHTML = "";
 
-                if (isMicOn) {
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
+                if (isMicListening) {
+                    // Mic is ON - Recording
+                    mainBtn.className = "relative w-20 h-20 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
                     btnIcon.setAttribute('icon', 'lucide:mic');
                     pulseRing.classList.remove('hidden');
-                    instruction.innerText = "Listening... Tap to Mute";
+                    instruction.innerText = "Listening... Tap to Stop & Send";
                 } else {
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-slate-800 text-red-400 border border-red-500/30 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
-                    btnIcon.setAttribute('icon', 'lucide:mic-off');
+                    // Mic is OFF - Waiting for AI or User
+                    mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
+                    btnIcon.setAttribute('icon', 'lucide:mic');
                     pulseRing.classList.add('hidden');
-                    instruction.innerText = "Mic Muted. AI is replying...";
+                    instruction.innerText = "Tap to Speak";
                 }
             } else {
+                // Disconnected
                 chatInput.disabled = true;
                 sendBtn.disabled = true;
                 endBtn.classList.add('hidden');
@@ -375,7 +383,7 @@
                 
                 mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
                 btnIcon.setAttribute('icon', 'lucide:mic');
-                instruction.innerText = "Tap Mic to connect";
+                instruction.innerText = "Tap Mic to Connect";
             }
         }
 
@@ -404,13 +412,13 @@
                 transcript.appendChild(div);
                 currentBotBubble = div.querySelector('.bot-text');
             }
-            currentBotBubble.textContent += text; // Safe text appending
+            currentBotBubble.textContent += text; 
             transcript.scrollTop = transcript.scrollHeight;
         }
 
         function stopSession() {
-            isLive = false;
-            isMicOn = false;
+            isConnected = false;
+            isMicListening = false;
             if (socket) { socket.close(); socket = null; }
             if (stream) stream.getTracks().forEach(t => t.stop());
             if (audioCtx) audioCtx.suspend(); 
@@ -424,13 +432,15 @@
 
         // --- BUTTON ACTIONS ---
         mainBtn.onclick = () => {
-            if (!isLive) {
+            if (!isConnected) {
+                // 1. First click connects to the API
                 startSession(); 
             } else {
-                isMicOn = !isMicOn; 
+                // 2. Subsequent clicks toggle the Mic
+                isMicListening = !isMicListening; 
                 
-                // FIX: Force AI to reply when user mutes the mic!
-                if (!isMicOn && socket?.readyState === WebSocket.OPEN) {
+                // CRITICAL FIX: When user stops listening, send turnComplete to force AI response!
+                if (!isMicListening && socket?.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify({ clientContent: { turnComplete: true } }));
                 }
                 
