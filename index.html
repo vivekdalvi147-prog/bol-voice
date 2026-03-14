@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Live Agent - Pro</title>
+    <title>Gemini Live Agent - Pro Max</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://code.iconify.design/iconify-icon/3.0.0/iconify-icon.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
@@ -22,9 +22,6 @@
         .mic-shadow {
             box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
         }
-        .muted-shadow {
-            box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-        }
         .live-pulse {
             animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
         }
@@ -38,9 +35,9 @@
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
 
-    <div class="w-full max-w-lg glass rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col h-[90vh]">
+    <div class="w-full max-w-lg glass rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col h-[85vh]">
         <!-- Status Bar -->
-        <div class="px-8 py-6 flex justify-between items-center border-b border-white/5 shrink-0">
+        <div class="px-8 py-5 flex justify-between items-center border-b border-white/5 shrink-0">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
                     <iconify-icon icon="logos:google-gemini" width="24"></iconify-icon>
@@ -53,18 +50,13 @@
                     </div>
                 </div>
             </div>
-            <div class="flex gap-4">
-                <button id="end-call-btn" class="hidden text-red-400 hover:text-red-500 transition-colors" title="End Call">
-                    <iconify-icon icon="lucide:phone-off" width="22"></iconify-icon>
-                </button>
-                <button id="settings-toggle" class="text-slate-400 hover:text-white transition-colors">
-                    <iconify-icon icon="lucide:settings" width="22"></iconify-icon>
-                </button>
-            </div>
+            <button id="settings-toggle" class="text-slate-400 hover:text-white transition-colors">
+                <iconify-icon icon="lucide:settings" width="20"></iconify-icon>
+            </button>
         </div>
 
         <!-- Settings Panel -->
-        <div id="settings-panel" class="px-8 py-4 bg-black/40 border-b border-white/5 hidden shrink-0 z-10 absolute w-full top-[88px]">
+        <div id="settings-panel" class="px-8 py-4 bg-black/20 border-b border-white/5 hidden shrink-0">
             <label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">API Configuration</label>
             <div class="flex gap-2">
                 <input id="api-key" type="password" placeholder="Enter Gemini API Key" 
@@ -74,41 +66,52 @@
             <p class="text-[9px] text-slate-500 mt-2 italic">Key is saved locally in your browser.</p>
         </div>
 
-        <!-- Main Content (Transcript) -->
-        <div class="flex-1 p-6 overflow-hidden relative flex flex-col">
-            <div id="transcript" class="flex-1 overflow-y-auto text-sm text-slate-300 leading-relaxed space-y-4 pb-4">
-                <p id="placeholder-msg" class="text-slate-500 italic text-center mt-20">Tap the Mic to connect and start...</p>
+        <!-- Main Content (Transcript + Chat Input) -->
+        <div class="p-6 flex-1 flex flex-col overflow-hidden gap-4">
+            
+            <!-- Transcript Area -->
+            <div id="transcript-container" class="relative flex-1 bg-black/20 rounded-3xl border border-white/5 p-6 overflow-hidden flex flex-col">
+                <div id="transcript" class="flex-1 overflow-y-auto text-sm text-slate-300 leading-relaxed space-y-4 pb-4">
+                    <p class="text-slate-500 italic text-center mt-20">Connect to start the conversation...</p>
+                </div>
+                <div class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-slate-900/90 to-transparent pointer-events-none"></div>
             </div>
-            <div class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-slate-900/80 to-transparent pointer-events-none"></div>
-        </div>
 
-        <!-- Text Chat Input (Hidden when disconnected) -->
-        <div id="chat-box" class="px-6 pb-2 hidden shrink-0 transition-all animate-in slide-in-from-bottom-2">
-            <div class="flex items-center bg-slate-900/50 border border-white/10 rounded-2xl p-2 focus-within:border-blue-500 transition-all">
-                <input id="text-input" type="text" placeholder="Type a message..." 
-                    class="flex-1 bg-transparent text-sm px-4 outline-none text-white placeholder:text-slate-600">
-                <button id="send-btn" class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-500 transition-all">
-                    <iconify-icon icon="lucide:send" width="18"></iconify-icon>
+            <!-- Text Input Area -->
+            <div class="flex gap-2 shrink-0">
+                <input id="chat-input" type="text" placeholder="Type a message..." disabled
+                    class="flex-1 bg-black/30 border border-white/10 rounded-2xl px-5 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                <button id="send-btn" disabled class="bg-blue-600 hover:bg-blue-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                    <iconify-icon icon="lucide:send" width="20"></iconify-icon>
                 </button>
             </div>
         </div>
 
-        <!-- Mic Controls -->
-        <div class="p-6 shrink-0 flex flex-col items-center justify-center">
-            <div class="relative">
-                <div id="pulse-ring" class="absolute inset-0 rounded-full bg-blue-500/30 live-pulse hidden"></div>
-                <button id="main-btn" class="relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow">
-                    <iconify-icon id="btn-icon" icon="lucide:mic" width="32"></iconify-icon>
+        <!-- Controls (Mic & End Call) -->
+        <div class="pb-8 pt-2 flex flex-col items-center justify-center gap-4 shrink-0">
+            <div class="flex items-center justify-center gap-6">
+                <!-- End Call Button (Hidden initially) -->
+                <button id="end-btn" class="hidden w-12 h-12 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-lg">
+                    <iconify-icon icon="lucide:phone-off" width="20"></iconify-icon>
                 </button>
+
+                <!-- Main Mic Button -->
+                <div class="relative">
+                    <div id="pulse-ring" class="absolute inset-0 rounded-full bg-blue-500/30 live-pulse hidden"></div>
+                    <button id="main-btn" class="relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow">
+                        <iconify-icon id="btn-icon" icon="lucide:mic" width="32"></iconify-icon>
+                    </button>
+                </div>
             </div>
-            <p id="instruction" class="text-xs font-semibold text-slate-400 mt-4 uppercase tracking-widest">Tap to Connect</p>
+            
+            <p id="instruction" class="text-xs font-semibold text-slate-400">Tap Mic to connect</p>
         </div>
 
         <!-- Footer -->
         <div class="px-8 py-3 bg-white/5 flex justify-between items-center shrink-0">
             <div class="flex items-center gap-2">
                 <iconify-icon icon="lucide:mic-2" class="text-slate-500"></iconify-icon>
-                <select id="mic-select" class="bg-transparent text-[10px] font-bold text-slate-500 outline-none cursor-pointer uppercase max-w-[100px] truncate">
+                <select id="mic-select" class="bg-transparent text-[10px] font-bold text-slate-500 outline-none cursor-pointer uppercase w-24 truncate">
                     <option value="">Default Mic</option>
                 </select>
             </div>
@@ -127,31 +130,26 @@
         let processor = null;
         let nextTime = 0;
         
-        // App States
-        let isConnected = false;
-        let isMicMuted = false;
+        let isLive = false;   // Is WebSocket Connected?
+        let isMicOn = false;  // Is Mic currently listening/sending?
         let currentBotBubble = null; 
 
         // UI Elements
         const mainBtn = document.getElementById('main-btn');
         const btnIcon = document.getElementById('btn-icon');
-        const endCallBtn = document.getElementById('end-call-btn');
+        const endBtn = document.getElementById('end-btn');
         const pulseRing = document.getElementById('pulse-ring');
         const statusDot = document.getElementById('status-dot');
         const statusText = document.getElementById('status-text');
-        const instruction = document.getElementById('instruction');
         const transcript = document.getElementById('transcript');
-        const placeholderMsg = document.getElementById('placeholder-msg');
-        
-        const textInput = document.getElementById('text-input');
-        const sendBtn = document.getElementById('send-btn');
-        const chatBox = document.getElementById('chat-box');
-        
         const apiKeyInput = document.getElementById('api-key');
         const settingsPanel = document.getElementById('settings-panel');
         const micSelect = document.getElementById('mic-select');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const instruction = document.getElementById('instruction');
 
-        // --- INIT & SETTINGS ---
+        // --- API KEY PERSISTENCE ---
         window.onload = () => {
             const savedKey = localStorage.getItem('gemini_api_key');
             if (savedKey) {
@@ -170,22 +168,21 @@
 
         document.getElementById('settings-toggle').onclick = () => settingsPanel.classList.toggle('hidden');
 
-        // --- CORE WEBSOCKET LOGIC ---
+        // --- CORE LOGIC ---
         async function startSession() {
             const key = apiKeyInput.value.trim();
-            if (!key) {
-                settingsPanel.classList.remove('hidden');
-                return alert("Please enter API Key in settings first!");
-            }
+            if (!key) return alert("Please enter API Key in settings!");
 
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
             if (audioCtx.state === 'suspended') await audioCtx.resume();
 
             updateStatus('Connecting...', 'bg-yellow-500');
 
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    audio: micSelect.value ? { deviceId: micSelect.value } : true
+                    audio: micSelect.value ? { deviceId: micSelect.value, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true }
                 });
 
                 socket = new WebSocket(`${WS_URL}?key=${key}`);
@@ -195,7 +192,7 @@
                         setup: {
                             model: MODEL,
                             generationConfig: {
-                                responseModalities: ["AUDIO"], // Native audio will also return text parts
+                                responseModalities: ["AUDIO"], // This returns BOTH Audio and Text
                                 speechConfig: {
                                     voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
                                 }
@@ -206,12 +203,11 @@
                     
                     initAudio();
                     
-                    isConnected = true;
-                    isMicMuted = false;
+                    isLive = true;
+                    isMicOn = true; // Mic starts ON by default
                     updateUIState();
-                    updateStatus('Live', 'bg-emerald-500');
-                    if(placeholderMsg) placeholderMsg.style.display = 'none';
-                    addTranscript("System", "Connection established. You can speak or type your message!");
+                    updateStatus('Connected', 'bg-emerald-500');
+                    addTranscript("System", "Connected! You can speak or type your message.", "text-emerald-400");
                 };
 
                 socket.onmessage = async (e) => {
@@ -227,6 +223,7 @@
                             }
                         });
                     }
+
                     if (data.serverContent?.turnComplete) {
                         currentBotBubble = null; 
                     }
@@ -245,10 +242,8 @@
             }
         }
 
-        // --- AUDIO PROCESSING ---
         async function initAudio() {
             const source = audioCtx.createMediaStreamSource(stream);
-
             const workletCode = `
                 class P extends AudioWorkletProcessor {
                     process(inputs) {
@@ -270,8 +265,8 @@
             
             let pcmBuffer =[];
             processor.port.onmessage = (e) => {
-                // If disconnected or MIC IS MUTED, do not send audio data!
-                if (!isConnected || isMicMuted || socket?.readyState !== WebSocket.OPEN) return;
+                // ONLY send audio if Live AND Mic is ON
+                if (!isLive || !isMicOn || socket?.readyState !== WebSocket.OPEN) return;
                 
                 const arr = new Uint8Array(e.data);
                 for(let i = 0; i < arr.length; i++) pcmBuffer.push(arr[i]);
@@ -279,14 +274,12 @@
                 if (pcmBuffer.length >= 3200) {
                     const chunk = new Uint8Array(pcmBuffer);
                     pcmBuffer =[];
-                    
                     let binary = '';
                     for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
-                    const b64 = btoa(binary);
-
+                    
                     socket.send(JSON.stringify({
                         realtimeInput: {
-                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: b64 }]
+                            mediaChunks:[{ mimeType: "audio/pcm;rate=16000", data: btoa(binary) }]
                         }
                     }));
                 }
@@ -304,7 +297,7 @@
             const f32 = new Float32Array(i16.length);
             for (let i=0; i<i16.length; i++) f32[i] = i16[i] / 32768;
 
-            const buf = audioCtx.createBuffer(1, f32.length, 24000); 
+            const buf = audioCtx.createBuffer(1, f32.length, 24000);
             buf.copyToChannel(f32, 0);
             const node = audioCtx.createBufferSource();
             node.buffer = buf;
@@ -317,97 +310,78 @@
             nextTime += buf.duration;
         }
 
-        // --- TEXT MESSAGING (TEXT CHAT) ---
+        // --- TEXT CHAT LOGIC ---
         function sendTextMessage() {
-            const text = textInput.value.trim();
-            if (!text || !isConnected || socket?.readyState !== WebSocket.OPEN) return;
+            const text = chatInput.value.trim();
+            if (!text || !isLive || socket?.readyState !== WebSocket.OPEN) return;
 
+            // Show user message in UI
+            addTranscript("You", text, "text-blue-400");
+            
+            // Send text to Gemini API
             const msg = {
                 clientContent: {
-                    turns:[{ role: "user", parts: [{ text: text }] }],
+                    turns: [{ role: "user", parts:[{ text: text }] }],
                     turnComplete: true
                 }
             };
-            
             socket.send(JSON.stringify(msg));
-            addTranscript("You", text);
-            textInput.value = "";
+            
+            chatInput.value = "";
         }
 
-        sendBtn.onclick = sendTextMessage;
-        textInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") sendTextMessage();
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendTextMessage();
         });
+        sendBtn.onclick = sendTextMessage;
 
-
-        // --- UI & STATE CONTROL ---
+        // --- UI HELPERS ---
         function updateUIState() {
-            if (!isConnected) {
-                // Completely disconnected
-                mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
-                btnIcon.setAttribute('icon', 'lucide:mic');
-                pulseRing.classList.add('hidden');
-                endCallBtn.classList.add('hidden');
-                chatBox.classList.add('hidden');
-                instruction.innerText = "Tap to Connect";
-                updateStatus('Disconnected', 'bg-slate-500');
-            } else {
-                // Connected
-                endCallBtn.classList.remove('hidden');
-                chatBox.classList.remove('hidden');
+            if (isLive) {
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                endBtn.classList.remove('hidden');
                 
-                if (isMicMuted) {
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all muted-shadow";
-                    btnIcon.setAttribute('icon', 'lucide:mic-off');
-                    pulseRing.classList.add('hidden');
-                    instruction.innerText = "Mic Paused (Tap to Unmute)";
-                    updateStatus('Connected (Muted)', 'bg-yellow-500');
-                } else {
-                    mainBtn.className = "relative w-20 h-20 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
+                if (transcript.innerText.includes("Connect to start")) transcript.innerHTML = "";
+
+                if (isMicOn) {
+                    // Mic is Active
+                    mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
                     btnIcon.setAttribute('icon', 'lucide:mic');
                     pulseRing.classList.remove('hidden');
-                    instruction.innerText = "Listening... (Tap to Mute)";
-                    updateStatus('Live', 'bg-emerald-500');
+                    instruction.innerText = "Listening... Tap to Mute";
+                } else {
+                    // Mic is Muted
+                    mainBtn.className = "relative w-20 h-20 rounded-full bg-slate-800 text-red-400 border border-red-500/30 flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all";
+                    btnIcon.setAttribute('icon', 'lucide:mic-off');
+                    pulseRing.classList.add('hidden');
+                    instruction.innerText = "Mic Muted. Tap to Unmute";
                 }
-            }
-        }
-
-        function toggleMic() {
-            isMicMuted = !isMicMuted;
-            updateUIState();
-        }
-
-        mainBtn.onclick = () => {
-            if (!isConnected) {
-                startSession(); // Connect if totally disconnected
             } else {
-                toggleMic(); // Toggle Mute/Unmute if already connected
+                // Disconnected State
+                chatInput.disabled = true;
+                sendBtn.disabled = true;
+                endBtn.classList.add('hidden');
+                pulseRing.classList.add('hidden');
+                
+                mainBtn.className = "relative w-20 h-20 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all mic-shadow";
+                btnIcon.setAttribute('icon', 'lucide:mic');
+                instruction.innerText = "Tap Mic to connect";
             }
-        };
-
-        function stopSession() {
-            if (socket) { socket.close(); socket = null; }
-            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-            if (audioCtx) { audioCtx.suspend(); }
-            
-            isConnected = false;
-            isMicMuted = false;
-            nextTime = 0;
-            currentBotBubble = null;
-            updateUIState();
         }
 
-        endCallBtn.onclick = stopSession;
+        function updateStatus(txt, color) {
+            statusText.innerText = txt;
+            statusDot.className = `w-2 h-2 rounded-full ${color}`;
+        }
 
-        // --- TRANSCRIPT UI HELPERS ---
-        function addTranscript(role, text) {
+        function addTranscript(role, text, colorClass = "text-blue-400") {
             const div = document.createElement('div');
-            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-white/5 p-3 rounded-2xl w-fit max-w-[85%] border border-white/5";
-            if (role === "You") div.classList.add('ml-auto', 'bg-blue-600/20', 'border-blue-500/30');
+            div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-white/5 p-3 rounded-2xl w-fit max-w-[85%]";
+            if(role === "You") div.className += " ml-auto bg-blue-600/20 border border-blue-500/20";
             
-            const roleColor = role === "You" ? "text-blue-400" : "text-slate-400";
-            div.innerHTML = `<span class="text-[9px] font-bold uppercase tracking-widest ${roleColor} block mb-1">${role}</span>
-                           <p class="text-slate-200">${text}</p>`;
+            div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest ${colorClass}">${role}</span>
+                           <p class="text-slate-200 mt-1">${text}</p>`;
             transcript.appendChild(div);
             transcript.scrollTop = transcript.scrollHeight;
         }
@@ -415,17 +389,43 @@
         function appendBotText(text) {
             if (!currentBotBubble) {
                 const div = document.createElement('div');
-                div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-emerald-500/10 p-3 rounded-2xl w-fit max-w-[85%] border border-emerald-500/20";
-                div.innerHTML = `<span class="text-[9px] font-bold uppercase tracking-widest text-emerald-400 block mb-1">Gemini</span>
-                               <p class="text-slate-200 bot-text leading-relaxed"></p>`;
+                div.className = "animate-in slide-in-from-bottom-2 duration-300 mb-4 bg-white/5 p-3 rounded-2xl w-fit max-w-[85%] border border-white/10";
+                div.innerHTML = `<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Gemini</span>
+                               <p class="text-slate-200 mt-1 bot-text"></p>`;
                 transcript.appendChild(div);
                 currentBotBubble = div.querySelector('.bot-text');
             }
-            currentBotBubble.innerHTML += text.replace(/\n/g, '<br>');
+            currentBotBubble.innerHTML += text;
             transcript.scrollTop = transcript.scrollHeight;
         }
 
-        // Get Devices
+        function stopSession() {
+            isLive = false;
+            isMicOn = false;
+            if (socket) { socket.close(); socket = null; }
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            if (audioCtx) audioCtx.suspend(); 
+            
+            updateUIState();
+            updateStatus('Disconnected', 'bg-slate-500');
+            nextTime = 0;
+            currentBotBubble = null;
+            addTranscript("System", "Session ended.", "text-red-400");
+        }
+
+        // --- BUTTON ACTIONS ---
+        mainBtn.onclick = () => {
+            if (!isLive) {
+                startSession(); // Connect if not connected
+            } else {
+                isMicOn = !isMicOn; // Toggle Mic if already connected
+                updateUIState();
+            }
+        };
+
+        endBtn.onclick = stopSession; // Red button to disconnect
+
+        // Mic Enumeration
         navigator.mediaDevices.enumerateDevices().then(devs => {
             micSelect.innerHTML = '<option value="">Default Mic</option>';
             devs.filter(d => d.kind === 'audioinput').forEach(d => {
